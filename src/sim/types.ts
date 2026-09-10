@@ -1,0 +1,150 @@
+/**
+ * Modelo de datos del juego. Toda esta capa es TypeScript puro, sin Phaser:
+ * la simulacion tiene que poder correr sin pantalla (partidos de la IA,
+ * avance de temporada, tests).
+ */
+
+export type PosicionCodigo = 'ARQ' | 'DEF' | 'MED' | 'DEL';
+
+/** Atributos 1-99, al estilo de las medias clasicas de los juegos de futbol. */
+export interface Atributos {
+  ritmo: number;
+  regate: number;
+  pase: number;
+  tiro: number;
+  quite: number;
+  fisico: number;
+  arquero: number;
+}
+
+export interface Jugador {
+  id: string;
+  nombre: string;
+  edad: number;
+  pos: PosicionCodigo;
+  attrs: Atributos;
+  media: number;
+  potencial: number;
+  /** 0-100. Afecta rendimiento y pedidos de transferencia. */
+  moral: number;
+  /** 0-100. Baja con los partidos y sube descansando. */
+  forma: number;
+  lesionSemanas: number;
+  /** Salario semanal en pesos del juego. */
+  salario: number;
+  valor: number;
+  clubId: string | null;
+  contratoSemanas: number;
+  golesTemporada: number;
+  partidosTemporada: number;
+}
+
+export type Formacion = '4-4-2' | '4-3-3' | '3-5-2' | '5-3-2' | '4-2-3-1';
+
+export interface Tacticas {
+  formacion: Formacion;
+  /** 0-100: que tan arriba presiona el equipo. */
+  presion: number;
+  /** 0-100: altura de la linea defensiva. */
+  lineaDefensiva: number;
+  /** 0-100: 0 = juego pausado y de posesion, 100 = vertical y directo. */
+  ritmo: number;
+  /** 0-100: 0 = todos atras, 100 = todos al ataque. */
+  mentalidad: number;
+}
+
+export interface Estadio {
+  nombre: string;
+  capacidad: number;
+  /** Nivel de comodidades: sube ingresos por hincha y reputacion. */
+  nivel: number;
+}
+
+export interface Club {
+  id: string;
+  nombre: string;
+  abrev: string;
+  colorPrimario: string;
+  colorSecundario: string;
+  esUsuario: boolean;
+  /** 1-100. Define calidad del plantel, sponsors y expectativas. */
+  reputacion: number;
+  dinero: number;
+  estadio: Estadio;
+  socios: number;
+  precioEntrada: number;
+  sponsorSemanal: number;
+  /** Nivel de la cantera: mejora los juveniles que aparecen cada temporada. */
+  cantera: number;
+  tacticas: Tacticas;
+  /** ids de los 11 titulares elegidos por el usuario (o por la IA). */
+  titulares: string[];
+}
+
+export interface Partido {
+  id: string;
+  jornada: number;
+  localId: string;
+  visitanteId: string;
+  golesLocal: number | null;
+  golesVisitante: number | null;
+  jugado: boolean;
+  /** true si lo jugo el usuario en modo arcade. */
+  arcade: boolean;
+}
+
+export interface FilaTabla {
+  clubId: string;
+  pj: number;
+  g: number;
+  e: number;
+  p: number;
+  gf: number;
+  gc: number;
+  dif: number;
+  pts: number;
+}
+
+export type TipoMensaje = 'directorio' | 'finanzas' | 'plantel' | 'liga' | 'mercado';
+
+export interface Mensaje {
+  id: string;
+  semana: number;
+  tipo: TipoMensaje;
+  titulo: string;
+  cuerpo: string;
+  leido: boolean;
+}
+
+export interface Directorio {
+  /** Posicion que el directorio espera al final de la temporada. */
+  expectativaPosicion: number;
+  /** 0-100. Si llega a 0 te echan. */
+  confianza: number;
+  /** Presupuesto de fichajes asignado para la temporada. */
+  presupuestoFichajes: number;
+}
+
+export interface MovimientoFinanciero {
+  semana: number;
+  concepto: string;
+  monto: number;
+}
+
+export interface EstadoJuego {
+  version: number;
+  seed: number;
+  temporada: number;
+  semana: number;
+  clubUsuarioId: string;
+  clubs: Club[];
+  jugadores: Jugador[];
+  fixture: Partido[];
+  jornadaActual: number;
+  directorio: Directorio;
+  bandeja: Mensaje[];
+  finanzas: MovimientoFinanciero[];
+  /** Historial de temporadas cerradas: temporada -> posicion del usuario. */
+  historial: { temporada: number; posicion: number; pts: number }[];
+  despedido: boolean;
+}
