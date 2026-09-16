@@ -74,6 +74,8 @@ export class MotorPartido {
   private posesion = { usuario: 0, rival: 0 };
 
   private temporizadorFase = 0;
+  /** El cartel puede quedar en pantalla sin frenar la jugada. */
+  private temporizadorAviso = 0;
   private saqueDe: Bando = 'usuario';
   /** Mientras dure, un segundo jugador del usuario va a presionar la pelota. */
   private presionando = 0;
@@ -154,6 +156,11 @@ export class MotorPartido {
     this.esperaCambio = Math.max(0, this.esperaCambio - dt);
     this.presionando = Math.max(0, this.presionando - dt);
 
+    if (this.temporizadorAviso > 0) {
+      this.temporizadorAviso -= dt;
+      if (this.temporizadorAviso <= 0) this.aviso = null;
+    }
+
     if (this.temporizadorFase > 0) {
       this.temporizadorFase -= dt;
       this.moverJugadores(dt, entrada, true);
@@ -175,13 +182,17 @@ export class MotorPartido {
     this.revisarReloj();
   }
 
-  private anunciar(titulo: string, detalle: string, segundos: number): void {
+  /**
+   * Muestra un cartel. Con `pausa` en false la jugada sigue: los laterales,
+   * los corners y los saques de arco se reanudan sin cortar el partido.
+   */
+  private anunciar(titulo: string, detalle: string, segundos: number, pausa = true): void {
     this.aviso = { titulo, detalle };
-    this.temporizadorFase = segundos;
+    this.temporizadorAviso = segundos;
+    if (pausa) this.temporizadorFase = segundos;
   }
 
   private terminarFase(): void {
-    this.aviso = null;
     this.temporizadorFase = 0;
 
     switch (this.fase) {
@@ -193,10 +204,6 @@ export class MotorPartido {
         break;
       case 'final':
         this.terminado = true;
-        break;
-      case 'saque_arco':
-        this.sacarDesdeElArco();
-        this.fase = 'jugando';
         break;
       default:
         this.fase = 'jugando';
@@ -287,7 +294,10 @@ export class MotorPartido {
     for (const j of this.jugadores) {
       j.bloqueo = Math.max(0, j.bloqueo - dt);
       j.patada = Math.max(0, j.patada - dt);
-      j.energia = Math.max(0.5, j.energia - dt * 0.0022 * (1.4 - j.attrs.fisico / 200));
+      // El que no esta esprintando recupera de a poco hasta su techo de forma.
+      const desgaste = dt * 0.0022 * (1.4 - j.attrs.fisico / 200);
+      const recupera = this.controladoId === j.id ? dt * 0.02 : dt * 0.05;
+      j.energia = limitar(j.energia - desgaste + (j.estado === 'normal' ? recupera * 0.4 : 0), 0, 1);
 
       if (j.estado === 'barrida' || j.estado === 'caido') {
         this.avanzarBarrida(j, dt);
@@ -386,7 +396,11 @@ export class MotorPartido {
 
   private moverControlado(j: JugadorPartido, dt: number, entrada: EntradaPartido): void {
     const conPelota = this.pelota.duenoId === j.id;
-    const velocidad = this.velocidadDe(j) * (conPelota ? 0.9 : 1);
+    const puedeCorrer = entrada.correr && j.energia > 0.18;
+    if (puedeCorrer) j.energia = Math.max(0, j.energia - dt * 0.075);
+    // Corriendo se gana velocidad pero se pierde algo de control con la pelota.
+    const esfuerzo = puedeCorrer ? (conPelota ? 1.24 : 1.35) : 1;
+    const velocidad = this.velocidadDe(j) * (conPelota ? 0.9 : 1) * esfuerzo;
     const suave = Math.min(1, dt * 9);
     j.vx += (entrada.moverX * velocidad - j.vx) * suave;
     j.vz += (entrada.moverZ * velocidad - j.vz) * suave;
@@ -443,6 +457,15 @@ export class MotorPartido {
     let objetivoZ: number;
     let objetivoX: number;
     let factor = 1;
+
+    if (this.pelota.duenoId === arquero.id) {
+      // Con la pelota en la mano sale jugando: camina hasta el borde del area
+      // en vez de quedarse plantado sobre la linea.
+      objetivoX = linea + (AREA_LARGO - 2) * haciaAdentro;
+      objetivoZ = limitar(arquero.z * 0.5, -12, 12);
+      this.irHacia(arquero, objetivoX, objetivoZ, dt, 0.55);
+      return;
+    }
 
     const cruce = this.cruceDelRemate(arquero);
     if (!detenido && cruce !== null) {
@@ -610,7 +633,7 @@ export class MotorPartido {
 
     this.fase = 'libre';
     this.darLaPelotaA(victima.bando, this.pelota.x, this.pelota.z, victima.id);
-    this.anunciar('FALTA', `Tiro libre para ${this.equipoDe(victima.bando).abrev}`, 1.3);
+    this.anunciar('FALTA', `Tiro libre para ${this.equipoDe(victima.bando).abrev}`, 0.9);
   }
 
   private pasar(j: JugadorPartido, intencionX: number, intencionZ: number, bombeado: boolean): void {
@@ -930,7 +953,13 @@ export class MotorPartido {
     // Si el arquero lo maneja el usuario le doy tiempo para que la juegue el,
     // pero igual la saca sola: si no, el partido se queda congelado.
     const loJuegaElUsuario = !this.iaTotal && dueno.bando === 'usuario' && this.controladoId === dueno.id;
-    if (this.tiempoArqueroConPelota < (loJuegaElUsuario ? 6 : 1.1)) return;
+    const espera = loJuegaElUsuario ? 6 : 2.2;
+
+    // Antes de la espera completa ya puede sacar, si llego al borde del area.
+    const linea = this.arcoPropioDe(dueno.bando);
+    const salio = Math.abs(dueno.x - linea) > AREA_LARGO - 4;
+    if (this.tiempoArqueroConPelota < espera && !(salio && this.tiempoArqueroConPelota > 1.1)) return;
+
     this.tiempoArqueroConPelota = 0;
     this.pasar(dueno, dueno.bando === 'usuario' ? 1 : -1, 0, true);
   }
@@ -951,9 +980,8 @@ export class MotorPartido {
       const zLinea = Math.sign(z) * (ANCHO / 2 - 0.3);
       this.pelota.x = limitar(x, -LARGO / 2 + 2, LARGO / 2 - 2);
       this.pelota.z = zLinea;
-      this.fase = 'lateral';
       this.darLaPelotaA(saca, this.pelota.x, zLinea, null);
-      this.anunciar('LATERAL', `Saca ${this.equipoDe(saca).abrev}`, 1.1);
+      this.anunciar('LATERAL', `Saca ${this.equipoDe(saca).abrev}`, 1.1, false);
       return;
     }
 
@@ -965,16 +993,14 @@ export class MotorPartido {
       if (fueCorner) {
         const esquinaX = Math.sign(x) * (LARGO / 2 - 0.6);
         const esquinaZ = Math.sign(z || 1) * (ANCHO / 2 - 0.6);
-        this.fase = 'corner';
         const ataca: Bando = defiende === 'usuario' ? 'rival' : 'usuario';
         this.darLaPelotaA(ataca, esquinaX, esquinaZ, null);
-        this.anunciar('CORNER', `Para ${this.equipoDe(ataca).abrev}`, 1.3);
+        this.anunciar('CORNER', `Para ${this.equipoDe(ataca).abrev}`, 1.2, false);
       } else {
         const arquero = this.jugadores.find((j) => j.bando === defiende && j.esArquero);
-        this.fase = 'saque_arco';
         const x6 = Math.sign(x) * (LARGO / 2 - 5.5);
         this.darLaPelotaA(defiende, x6, limitar(z, -8, 8), arquero?.id ?? null);
-        this.anunciar('SAQUE DE ARCO', `Para ${this.equipoDe(defiende).abrev}`, 1.2);
+        this.anunciar('SAQUE DE ARCO', `Para ${this.equipoDe(defiende).abrev}`, 1.2, false);
       }
     }
   }
@@ -1011,12 +1037,6 @@ export class MotorPartido {
     this.pelota.duenoId = ejecutor.id;
     this.pelota.ultimoToqueId = ejecutor.id;
     if (bando === 'usuario') this.controladoId = ejecutor.id;
-  }
-
-  private sacarDesdeElArco(): void {
-    const dueno = this.porId(this.pelota.duenoId);
-    if (!dueno) return;
-    this.pasar(dueno, dueno.bando === 'usuario' ? 1 : -1, 0, true);
   }
 
   private anotar(bando: Bando): void {

@@ -1,6 +1,12 @@
 import type { Atributos, Jugador, PosicionCodigo } from './types';
 import { Rng } from './rng';
-import { APELLIDOS, NOMBRES } from './nombres';
+import {
+  APELLIDOS,
+  APELLIDOS_EXTRANJEROS,
+  LIGAS_EXTRANJERAS,
+  NOMBRES,
+  NOMBRES_EXTRANJEROS,
+} from './nombres';
 
 /** Peso de cada atributo en la media, segun el puesto. */
 const PESOS: Record<PosicionCodigo, Atributos> = {
@@ -38,8 +44,13 @@ export function valorDeMercado(media: number, edad: number, potencial: number): 
   return Math.round((base * factorEdad * factorPotencial) / 1000) * 1000;
 }
 
+/**
+ * Sueldo semanal. Esta calibrado contra los ingresos del club: la masa salarial
+ * de un plantel tiene que comerse casi toda la entrada fija de TV y sponsor,
+ * asi que la taquilla es lo que deja margen.
+ */
 export function salarioSemanal(valor: number, media: number): number {
-  return Math.round((valor * 0.0016 + media * 220) / 100) * 100;
+  return Math.round((valor * 0.05 + media * 3000) / 1000) * 1000;
 }
 
 let contadorId = 0;
@@ -97,7 +108,41 @@ export function generarJugador(rng: Rng, opciones: OpcionesJugador): Jugador {
     contratoSemanas: rng.int(40, 160),
     golesTemporada: 0,
     partidosTemporada: 0,
+    progreso: 0,
   };
+}
+
+/** Jugador del mercado internacional: sin club, con la liga de la que viene. */
+export function generarExtranjero(rng: Rng, indiceLiga?: number): Jugador {
+  const liga = indiceLiga === undefined ? rng.pick(LIGAS_EXTRANJERAS) : LIGAS_EXTRANJERAS[indiceLiga];
+  const puestos: PosicionCodigo[] = ['ARQ', 'DEF', 'DEF', 'DEF', 'MED', 'MED', 'MED', 'DEL', 'DEL'];
+
+  const jugador = generarJugador(rng, {
+    pos: rng.pick(puestos),
+    nivel: Math.max(28, Math.min(92, liga.nivel * 0.72 + rng.float(-9, 11))),
+    clubId: null,
+    edadMin: 18,
+    edadMax: 33,
+  });
+
+  jugador.nombre = `${rng.pick(NOMBRES_EXTRANJEROS)} ${rng.pick(APELLIDOS_EXTRANJEROS)}`;
+  jugador.ligaOrigen = liga.nombre;
+  jugador.contratoSemanas = 0;
+  return jugador;
+}
+
+/** Peso de cada atributo al repartir una mejora o una caida, segun el puesto. */
+export function atributoAfectado(rng: Rng, pos: PosicionCodigo): keyof Atributos {
+  const pesos = PESOS[pos];
+  const claves = Object.keys(pesos) as (keyof Atributos)[];
+  const total = claves.reduce((suma, clave) => suma + pesos[clave] + 0.05, 0);
+
+  let tirada = rng.float(0, total);
+  for (const clave of claves) {
+    tirada -= pesos[clave] + 0.05;
+    if (tirada <= 0) return clave;
+  }
+  return 'fisico';
 }
 
 /** Composicion de un plantel completo: arqueros, defensores, mediocampistas, delanteros. */

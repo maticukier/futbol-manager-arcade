@@ -93,6 +93,8 @@ export interface EntradaPartido {
   b: boolean;
   /** Pase bombeado y centros, o presion en bloque. */
   c: boolean;
+  /** Se mantiene apretado: acelera y gasta energia. */
+  correr: boolean;
   /** 0-1: cuanto se mantuvo apretado el boton antes de soltarlo. */
   potencia: number;
 }
@@ -103,6 +105,7 @@ export const ENTRADA_VACIA: EntradaPartido = {
   a: false,
   b: false,
   c: false,
+  correr: false,
   potencia: 0.6,
 };
 

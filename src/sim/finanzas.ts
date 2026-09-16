@@ -54,7 +54,12 @@ export function masaSalarial(clubId: string, jugadores: Jugador[]): number {
 
 /** Ingreso semanal fijo por derechos de TV, segun reputacion. */
 export function ingresoTv(club: Club): number {
-  return Math.round(club.reputacion * 9000);
+  return Math.round(club.reputacion * 260_000);
+}
+
+/** Gasto fijo semanal: mantener el estadio y sostener las divisiones inferiores. */
+export function gastoFijo(club: Club): number {
+  return Math.round(club.estadio.capacidad * 220 + club.cantera * 900_000);
 }
 
 export function registrar(estado: EstadoJuego, concepto: string, monto: number): void {
@@ -81,15 +86,15 @@ export interface MejoraDisponible {
 }
 
 export function costoAmpliarEstadio(club: Club): number {
-  return Math.round((club.estadio.capacidad * 1400 + club.estadio.nivel * 900000) / 10000) * 10000;
+  return Math.round((club.estadio.capacidad * 12_000 + club.estadio.nivel * 15_000_000) / 100_000) * 100_000;
 }
 
 export function costoMejorarCantera(club: Club): number {
-  return Math.round((900000 + club.cantera * 750000) / 10000) * 10000;
+  return Math.round((25_000_000 + club.cantera * 20_000_000) / 100_000) * 100_000;
 }
 
 export function costoRenegociarSponsor(club: Club): number {
-  return Math.round((400000 + club.sponsorSemanal * 6) / 10000) * 10000;
+  return Math.round((20_000_000 + club.sponsorSemanal * 4) / 100_000) * 100_000;
 }
 
 export function mejorasDisponibles(club: Club): MejoraDisponible[] {
@@ -138,7 +143,7 @@ export function aplicarMejora(estado: EstadoJuego, clave: MejoraDisponible['clav
     club.cantera += 1;
     return `Cantera nivel ${club.cantera}: los juveniles de la proxima temporada van a ser mejores.`;
   }
-  const aumento = Math.round(club.sponsorSemanal * 0.25 + 20000);
+  const aumento = Math.round(club.sponsorSemanal * 0.25 + 2_000_000);
   club.sponsorSemanal += aumento;
   return `Nuevo contrato: +$${aumento.toLocaleString('es-AR')} por semana.`;
 }

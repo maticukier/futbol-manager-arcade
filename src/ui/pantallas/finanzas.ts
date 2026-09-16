@@ -4,6 +4,7 @@ import {
   PRECIO_ENTRADA_MAX,
   PRECIO_ENTRADA_MIN,
   aplicarMejora,
+  gastoFijo,
   ingresoTv,
   masaSalarial,
   mejorasDisponibles,
@@ -18,7 +19,7 @@ export function render(app: App): string {
 
   const salarios = masaSalarial(club.id, estado.jugadores);
   const tv = ingresoTv(club);
-  const mantenimiento = Math.round(club.estadio.capacidad * 9 + club.cantera * 45000);
+  const mantenimiento = gastoFijo(club);
   const balance = tv + club.sponsorSemanal - salarios - mantenimiento;
   const sugerido = precioEntradaSugerido(club);
 

@@ -9,7 +9,15 @@ import type {
 } from './types';
 import { Rng, seedAleatoria } from './rng';
 import { CLUBES_LIGA } from './nombres';
-import { generarJugador, generarPlantel, salarioSemanal, valorDeMercado, calcularMedia } from './jugadores';
+import {
+  atributoAfectado,
+  calcularMedia,
+  generarExtranjero,
+  generarJugador,
+  generarPlantel,
+  salarioSemanal,
+  valorDeMercado,
+} from './jugadores';
 import { TACTICAS_POR_DEFECTO } from './tacticas';
 import {
   calcularTabla,
@@ -25,13 +33,14 @@ import {
 import {
   calcularTaquilla,
   clubUsuario,
+  gastoFijo,
   ingresoTv,
   masaSalarial,
   precioEntradaSugerido,
   registrar,
 } from './finanzas';
 
-export const VERSION_PARTIDA = 1;
+export const VERSION_PARTIDA = 2;
 
 let contadorMensaje = 0;
 export function crearMensaje(
@@ -64,11 +73,11 @@ export function nuevaPartida(indiceClubUsuario: number, seed = seedAleatoria()):
     colorSecundario: plantilla.colorSecundario,
     esUsuario: i === indiceClubUsuario,
     reputacion: plantilla.reputacion,
-    dinero: Math.round(plantilla.reputacion * 420000 + rng.int(-2, 2) * 500000),
+    dinero: Math.round(plantilla.reputacion * 2_500_000 + rng.int(-2, 2) * 8_000_000),
     estadio: { nombre: plantilla.estadio, capacidad: plantilla.capacidad, nivel: Math.round(plantilla.reputacion / 14) },
     socios: Math.round(plantilla.capacidad * rng.float(0.55, 0.85)),
     precioEntrada: 0,
-    sponsorSemanal: Math.round(plantilla.reputacion * 5200),
+    sponsorSemanal: Math.round(plantilla.reputacion * 130_000),
     cantera: Math.max(1, Math.round(plantilla.reputacion / 12)),
     tacticas: { ...TACTICAS_POR_DEFECTO },
     titulares: [],
@@ -98,6 +107,7 @@ export function nuevaPartida(indiceClubUsuario: number, seed = seedAleatoria()):
     jugadores,
     fixture,
     jornadaActual: 1,
+    mercadoExtranjero: [],
     directorio: {
       expectativaPosicion: expectativa,
       confianza: 65,
@@ -109,6 +119,8 @@ export function nuevaPartida(indiceClubUsuario: number, seed = seedAleatoria()):
     despedido: false,
   };
 
+  renovarMercadoExtranjero(estado, rng);
+
   crearMensaje(
     estado,
     'directorio',
@@ -117,6 +129,23 @@ export function nuevaPartida(indiceClubUsuario: number, seed = seedAleatoria()):
   );
 
   return estado;
+}
+
+/**
+ * Rehace la lista de jugadores libres del exterior. Los que nadie compro se
+ * van, y entran caras nuevas: el mercado no puede ser el mismo para siempre.
+ */
+export function renovarMercadoExtranjero(estado: EstadoJuego, rng: Rng): void {
+  const anteriores = new Set(estado.mercadoExtranjero);
+  estado.jugadores = estado.jugadores.filter((j) => !(anteriores.has(j.id) && j.clubId === null));
+
+  const nuevos: Jugador[] = [];
+  for (let i = 0; i < 40; i++) {
+    const jugador = generarExtranjero(rng);
+    nuevos.push(jugador);
+    estado.jugadores.push(jugador);
+  }
+  estado.mercadoExtranjero = nuevos.map((j) => j.id);
 }
 
 function expectativaSegunReputacion(clubs: Club[], club: Club): number {
@@ -255,7 +284,7 @@ function procesarFinanzasSemana(
   registrar(estado, 'Salarios del plantel', -salarios);
   movimientos.push({ concepto: 'Salarios del plantel', monto: -salarios });
 
-  const mantenimiento = Math.round(club.estadio.capacidad * 9 + club.cantera * 45000);
+  const mantenimiento = gastoFijo(club);
   registrar(estado, 'Mantenimiento y cantera', -mantenimiento);
   movimientos.push({ concepto: 'Mantenimiento y cantera', monto: -mantenimiento });
 
@@ -284,7 +313,16 @@ function procesarFinanzasSemana(
 function procesarPlantel(estado: EstadoJuego, propio: Partido | null, rng: Rng): void {
   const club = clubUsuario(estado);
   const plantel = plantelDe(estado, club.id);
-  const jugaron = new Set(propio ? onceTitular(club, plantel).map((j) => j.id) : []);
+
+  // Todos los que fueron titulares en la fecha, no solo los del usuario.
+  const jugaron = new Set<string>();
+  for (const otro of estado.clubs) {
+    const jugoEstaFecha = estado.fixture.some(
+      (p) => p.jornada === estado.jornadaActual && p.jugado && (p.localId === otro.id || p.visitanteId === otro.id),
+    );
+    if (!jugoEstaFecha) continue;
+    for (const j of onceTitular(otro, plantelDe(estado, otro.id))) jugaron.add(j.id);
+  }
 
   for (const j of estado.jugadores) {
     if (j.lesionSemanas > 0) {
@@ -316,6 +354,8 @@ function procesarPlantel(estado: EstadoJuego, propio: Partido | null, rng: Rng):
     if (j.contratoSemanas > 0) j.contratoSemanas -= 1;
   }
 
+  evolucionarJugadores(estado, jugaron, rng);
+
   // La moral sigue al ultimo resultado del equipo del usuario.
   if (propio) {
     const esLocal = propio.localId === club.id;
@@ -324,6 +364,65 @@ function procesarPlantel(estado: EstadoJuego, propio: Partido | null, rng: Rng):
     const delta = propios > ajenos ? 6 : propios === ajenos ? 0 : -5;
     for (const j of plantel) j.moral = Math.max(10, Math.min(100, j.moral + delta));
   }
+}
+
+/**
+ * Evolucion semanal de todos los jugadores de la liga.
+ *
+ * No sube nadie todas las semanas: se acumulan puntos invisibles y recien al
+ * llegar a cien se traducen en un punto de atributo. Los pibes con margen de
+ * potencial suman rapido si juegan, los treintones empiezan a restar.
+ */
+function evolucionarJugadores(estado: EstadoJuego, jugaron: Set<string>, rng: Rng): void {
+  const club = clubUsuario(estado);
+
+  for (const j of estado.jugadores) {
+    if (j.lesionSemanas > 0) continue;
+
+    const margen = j.potencial - j.media;
+    const jugo = jugaron.has(j.id);
+
+    // Curva de carrera: hasta los 24 se crece, despues se sostiene y a los 30 se cae.
+    let puntos: number;
+    if (j.edad <= 24) puntos = (jugo ? 9 : 3) * Math.min(1.4, margen / 8);
+    else if (j.edad <= 29) puntos = (jugo ? 5 : 1.5) * Math.min(1, margen / 10);
+    else puntos = -(j.edad - 29) * (jugo ? 2.4 : 1.6);
+
+    if (margen <= 0 && j.edad <= 29) puntos = Math.min(puntos, 0.5);
+    puntos *= rng.float(0.5, 1.5) * (0.85 + j.moral / 400);
+    j.progreso += puntos;
+
+    if (j.progreso >= 100) {
+      j.progreso = 0;
+      aplicarCambioDeAtributo(estado, j, 1, rng, club.id);
+    } else if (j.progreso <= -100) {
+      j.progreso = 0;
+      aplicarCambioDeAtributo(estado, j, -1, rng, club.id);
+    }
+  }
+}
+
+function aplicarCambioDeAtributo(
+  estado: EstadoJuego,
+  j: Jugador,
+  delta: number,
+  rng: Rng,
+  clubUsuarioId: string,
+): void {
+  const clave = atributoAfectado(rng, j.pos);
+  const anterior = j.media;
+  j.attrs[clave] = Math.max(10, Math.min(99, j.attrs[clave] + delta));
+  j.media = calcularMedia(j.pos, j.attrs);
+  j.valor = valorDeMercado(j.media, j.edad, j.potencial);
+  j.salario = salarioSemanal(j.valor, j.media);
+
+  if (j.media === anterior || j.clubId !== clubUsuarioId) return;
+  crearMensaje(
+    estado,
+    'plantel',
+    delta > 0 ? `${j.nombre} mejoro` : `${j.nombre} bajo`,
+    `Su media pasa de ${anterior} a ${j.media}. Cambio ${clave}.`,
+  );
 }
 
 function actualizarDirectorio(estado: EstadoJuego): void {
@@ -367,7 +466,7 @@ export function cerrarTemporada(estado: EstadoJuego): ResumenTemporada {
 
   estado.historial.push({ temporada: estado.temporada, posicion, pts: puntos });
 
-  const premio = Math.round((estado.clubs.length - posicion + 1) * 1_800_000);
+  const premio = Math.round((estado.clubs.length - posicion + 1) * 20_000_000);
   registrar(estado, `Premio por terminar ${posicion}`, premio);
 
   estado.directorio.confianza = Math.max(
@@ -423,15 +522,11 @@ function envejecerPlantel(estado: EstadoJuego, rng: Rng): void {
 
   for (const j of estado.jugadores) {
     j.edad += 1;
-    const claves = ['ritmo', 'regate', 'pase', 'tiro', 'quite', 'fisico', 'arquero'] as const;
-
-    for (const clave of claves) {
-      if (j.edad <= 24 && j.media < j.potencial) {
-        j.attrs[clave] = Math.min(99, j.attrs[clave] + rng.int(0, 3));
-      } else if (j.edad >= 30) {
-        const caida = j.edad >= 34 ? rng.int(1, 4) : rng.int(0, 2);
-        j.attrs[clave] = Math.max(10, j.attrs[clave] - caida);
-      }
+    // La evolucion fuerte pasa semana a semana; el cambio de temporada solo
+    // recalcula valores y le pega un empujon extra a los veteranos.
+    if (j.edad >= 33) {
+      const clave = atributoAfectado(rng, j.pos);
+      j.attrs[clave] = Math.max(10, j.attrs[clave] - rng.int(1, 3));
     }
 
     j.media = calcularMedia(j.pos, j.attrs);
@@ -495,6 +590,8 @@ function reiniciarTemporada(estado: EstadoJuego, rng: Rng, posicionFinal: number
     const plantel = estado.jugadores.filter((j) => j.clubId === otro.id);
     otro.titulares = onceAutomatico(otro, plantel).map((j) => j.id);
   }
+
+  renovarMercadoExtranjero(estado, rng);
 
   crearMensaje(
     estado,

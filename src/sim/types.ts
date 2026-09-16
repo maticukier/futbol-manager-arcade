@@ -37,6 +37,14 @@ export interface Jugador {
   contratoSemanas: number;
   golesTemporada: number;
   partidosTemporada: number;
+  /**
+   * Puntos ocultos de evolucion. Suben jugando y con la edad a favor, bajan
+   * pasados los treinta. Al llegar a 100 o a -100 se traducen en un punto de
+   * atributo, asi que nadie mejora todas las semanas.
+   */
+  progreso: number;
+  /** Liga de la que viene, si esta en el mercado internacional. */
+  ligaOrigen?: string;
 }
 
 export type Formacion = '4-4-2' | '4-3-3' | '3-5-2' | '5-3-2' | '4-2-3-1';
@@ -141,6 +149,8 @@ export interface EstadoJuego {
   jugadores: Jugador[];
   fixture: Partido[];
   jornadaActual: number;
+  /** Jugadores libres del exterior, ofrecidos en el mercado de pases. */
+  mercadoExtranjero: string[];
   directorio: Directorio;
   bandeja: Mensaje[];
   finanzas: MovimientoFinanciero[];

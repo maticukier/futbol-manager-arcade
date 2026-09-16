@@ -5,6 +5,8 @@ Juego de futbol para celular que mezcla tres cosas que normalmente vienen separa
 - **Partido arcade en 3D** (estilo Dream League): jugas vos, apaisado, con joystick virtual y tres botones que cambian de funcion segun tengas o no la pelota.
 - **Direccion tecnica** (estilo Football Manager): once titular, formacion, actitud del equipo, lesiones, moral y mercado de pases.
 - **Presidencia del club** (estilo Football Chairman): caja, precio de la entrada, socios, estadio, cantera, sponsors y un directorio que te puede echar.
+- **Mercado con mercado internacional**: filtros por puesto, media, precio y
+  procedencia, con jugadores libres de ocho ligas del exterior.
 
 Web primero, jugable desde el navegador del celular y empaquetable a Android e
 iOS con Capacitor.
@@ -68,12 +70,23 @@ funcion segun quien tenga la pelota, como en Dream League:
 | Verde | Pase al ras | Cambiar de jugador | J |
 | Rojo | Tiro (mantener carga la potencia) | Barrida | K |
 | Azul | Pase bombeado y centros | Presion en bloque | L |
+| Amarillo | Correr (mantener) | Correr (mantener) | Shift |
+
+El boton amarillo tiene un anillo que muestra el aire que le queda al jugador.
+Esprintar lo gasta rapido y con la pelota se pierde algo de control, asi que no
+conviene tenerlo apretado todo el partido.
 
 Para moverte, joystick en la mitad izquierda de la pantalla, o WASD en la compu.
 Manejas al jugador mas cercano a la pelota y el cambio es automatico cuando la
 perdes; con el boton verde elegis vos a quien manejar.
 
 Tu equipo ataca siempre hacia la derecha, tambien en el segundo tiempo.
+
+### Sobre los reinicios
+
+Los laterales, los corners y los saques de arco no cortan el partido: la pelota
+queda en el piso, el que saca ya la tiene y la jugada sigue. Solo se frena de
+verdad en el gol, la falta, el entretiempo y el final.
 
 ### Sobre la barrida
 
@@ -128,6 +141,15 @@ simular partidos enteros en milisegundos para medir el balance.
   tanto la simulacion como el motor arcade, asi que cambiar de 4-4-2 a 5-3-2 se nota en la cancha.
 - **Las decisiones de presidente tienen costo.** Subir la entrada da plata ya y hace perder
   socios despues; ampliar el estadio sube el mantenimiento semanal.
+- **La economia esta toda en la misma escala.** La masa salarial se come casi
+  toda la entrada fija de TV y sponsor, asi que la taquilla es lo que deja
+  margen. Un club grande factura unos 55 millones por partido de local contra
+  38 de sueldos por semana: si el equipo anda mal se pierden socios, baja la
+  recaudacion y el club empieza a perder plata.
+- **Los jugadores evolucionan de a poco.** Cada semana suman puntos ocultos
+  segun edad, minutos y margen de potencial, y recien al llegar a cien se
+  traducen en un punto de atributo. Nadie mejora todas las fechas y despues de
+  los treinta se empieza a caer.
 - **Todo con semilla.** `Rng` hace que una partida sea reproducible, util para depurar.
 - **Sin assets.** Cancha, arcos, tribunas y jugadores se arman con primitivas y
   texturas dibujadas en un lienzo. No hay modelos que descargar ni licencias que

@@ -25,6 +25,7 @@ export class InterfazPartido {
   private readonly joystick: HTMLElement;
   private readonly palanca: HTMLElement;
   private readonly botones: Record<'a' | 'b' | 'c', HTMLButtonElement>;
+  private readonly botonCorrer: HTMLButtonElement;
   private readonly girar: HTMLElement;
 
   private punteroJoystick: number | null = null;
@@ -35,6 +36,8 @@ export class InterfazPartido {
   private potencia = 0.6;
   private cargaDesde = 0;
   private punteroCarga: number | null = null;
+  private punteroCorrer: number | null = null;
+  private corriendo = false;
   private teclas = new Set<string>();
   private conPelotaPrevio: boolean | null = null;
 
@@ -57,6 +60,7 @@ export class InterfazPartido {
         <button class="partido__boton partido__boton--c" type="button" data-boton="c"></button>
         <button class="partido__boton partido__boton--b" type="button" data-boton="b"></button>
         <button class="partido__boton partido__boton--a" type="button" data-boton="a"></button>
+        <button class="partido__boton partido__boton--correr" type="button" data-boton="correr">CORRER</button>
       </div>
       <div class="partido__girar" hidden>
         <div class="partido__girar-icono">📱</div>
@@ -77,6 +81,7 @@ export class InterfazPartido {
       b: this.raiz.querySelector('[data-boton="b"]')!,
       c: this.raiz.querySelector('[data-boton="c"]')!,
     };
+    this.botonCorrer = this.raiz.querySelector('[data-boton="correr"]')!;
 
     this.raiz.querySelector('.partido__salir')!.addEventListener('click', alSalir);
     this.conectarBotones();
@@ -88,6 +93,23 @@ export class InterfazPartido {
   // ---------------------------------------------------------------- entradas
 
   private conectarBotones(): void {
+    // Correr es un boton que se mantiene apretado, no un toque.
+    this.botonCorrer.addEventListener('pointerdown', (evento) => {
+      evento.preventDefault();
+      this.botonCorrer.setPointerCapture(evento.pointerId);
+      this.punteroCorrer = evento.pointerId;
+      this.corriendo = true;
+      this.botonCorrer.classList.add('apretado');
+    });
+    const soltarCorrer = (evento: PointerEvent) => {
+      if (this.punteroCorrer !== evento.pointerId) return;
+      this.punteroCorrer = null;
+      this.corriendo = false;
+      this.botonCorrer.classList.remove('apretado');
+    };
+    this.botonCorrer.addEventListener('pointerup', soltarCorrer);
+    this.botonCorrer.addEventListener('pointercancel', soltarCorrer);
+
     for (const clave of ['a', 'b', 'c'] as const) {
       const boton = this.botones[clave];
       boton.addEventListener('pointerdown', (evento) => {
@@ -214,6 +236,7 @@ export class InterfazPartido {
       a: this.pendientes.a,
       b: this.pendientes.b,
       c: this.pendientes.c,
+      correr: this.corriendo || this.teclas.has('shift'),
       potencia: this.potencia,
     };
 
@@ -242,6 +265,10 @@ export class InterfazPartido {
     }
 
     this.refrescarEtiquetas(false);
+
+    const controlado = this.motor.porId(this.motor.controladoId);
+    this.botonCorrer.style.setProperty('--energia', String(controlado ? controlado.energia : 1));
+    this.botonCorrer.classList.toggle('sin-aire', !!controlado && controlado.energia < 0.2);
 
     if (this.cargaDesde > 0) {
       this.botones.b.style.setProperty('--carga', String(this.calcularPotencia()));

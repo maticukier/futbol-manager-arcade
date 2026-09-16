@@ -42,3 +42,35 @@ export const CLUBES_LIGA: PlantillaClub[] = [
   { nombre: 'Defensores del Alto', abrev: 'DAL', colorPrimario: '#34495e', colorSecundario: '#e74c3c', reputacion: 41, estadio: 'La Barranca', capacidad: 12000 },
   { nombre: 'Juventud Obrera', abrev: 'JOB', colorPrimario: '#7f8c8d', colorSecundario: '#f39c12', reputacion: 36, estadio: 'El Sindicato', capacidad: 9000 },
 ];
+
+/** Ligas inventadas del exterior, para el mercado internacional. */
+export interface LigaExtranjera {
+  nombre: string;
+  /** 1-100: de que nivel salen los jugadores que ofrece. */
+  nivel: number;
+}
+
+export const LIGAS_EXTRANJERAS: LigaExtranjera[] = [
+  { nombre: 'Liga Continental', nivel: 88 },
+  { nombre: 'Premier del Norte', nivel: 84 },
+  { nombre: 'Serie Adriatica', nivel: 79 },
+  { nombre: 'Liga Iberica', nivel: 76 },
+  { nombre: 'Bundesliga del Este', nivel: 72 },
+  { nombre: 'Liga Cafetera', nivel: 62 },
+  { nombre: 'Liga del Pacifico', nivel: 55 },
+  { nombre: 'Liga Caribena', nivel: 48 },
+];
+
+/** Nombres con otra sonoridad, para que se note que el jugador viene de afuera. */
+export const NOMBRES_EXTRANJEROS = [
+  'Andrei', 'Bjorn', 'Cedric', 'Dimitri', 'Emeka', 'Florian', 'Goran', 'Hugo',
+  'Ibrahim', 'Jonas', 'Kwame', 'Lukas', 'Marek', 'Nuno', 'Oskar', 'Pietro',
+  'Rashid', 'Stefan', 'Tomasz', 'Viktor', 'Yannick', 'Zoran', 'Diego', 'Rafael',
+];
+
+export const APELLIDOS_EXTRANJEROS = [
+  'Andersen', 'Bianchi', 'Costa', 'Dragomir', 'Eriksen', 'Fontaine', 'Gruber',
+  'Halvorsen', 'Ivanov', 'Janssen', 'Kovac', 'Lindgren', 'Moreau', 'Novak',
+  'Oyelaran', 'Petrov', 'Quintero', 'Rossi', 'Silva', 'Toure', 'Ubeda',
+  'Vlahovic', 'Wagner', 'Zielinski',
+];
