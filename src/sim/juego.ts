@@ -423,6 +423,9 @@ function aplicarResultado(
     const club = clubPorId(estado, clubId);
     for (const j of onceTitular(club, plantelDe(estado, clubId))) {
       j.partidosTemporada += 1;
+      // A los propios se los va conociendo: de aca sale que despues de varios
+      // partidos se destape el rasgo que no venia en la ficha.
+      if (clubId === estado.clubUsuarioId) j.partidosObservado += 1;
     }
   }
 

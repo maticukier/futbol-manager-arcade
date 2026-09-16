@@ -1,6 +1,7 @@
 import type { App } from '../app';
+import { figuraDelPartido, type NotaJugador } from '@/sim/rendimiento';
 import { clubPorId, jugadorPorId } from '@/sim/juego';
-import { esc, numero, plata } from '../formato';
+import { claseNota, esc, numero, plata } from '../formato';
 
 export function render(app: App): string {
   const estado = app.exigirEstado();
@@ -43,6 +44,8 @@ export function render(app: App): string {
         </p>
       </div>
     `);
+
+    bloques.push(puntajes(arcade.notas.usuario));
   }
 
   if (resumen.copa) {
@@ -121,6 +124,49 @@ export function render(app: App): string {
 
   bloques.push('<button class="boton boton--primario" data-accion="seguir">Seguir</button>');
   return bloques.join('');
+}
+
+/**
+ * Los puntajes, como los de un diario del lunes. Es lo que le pone cara al
+ * partido: un 2 a 1 son dos numeros, y con las notas se sabe quien lo gano.
+ */
+function puntajes(notas: NotaJugador[]): string {
+  if (notas.length === 0) return '';
+  const figura = figuraDelPartido(notas);
+
+  const filas = notas
+    .map((n) => {
+      const s = n.stats;
+      const hizo = [
+        s.goles > 0 ? `${s.goles} ${s.goles === 1 ? 'gol' : 'goles'}` : '',
+        s.asistencias > 0 ? `${s.asistencias} ${s.asistencias === 1 ? 'asistencia' : 'asistencias'}` : '',
+        s.remates > 0 ? `${s.remates} ${s.remates === 1 ? 'remate' : 'remates'}` : '',
+        s.quites > 0 ? `${s.quites} ${s.quites === 1 ? 'quite' : 'quites'}` : '',
+        s.atajadas > 0 ? `${s.atajadas} ${s.atajadas === 1 ? 'atajada' : 'atajadas'}` : '',
+        s.rojas > 0 ? 'expulsado' : s.amarillas > 0 ? 'amarilla' : '',
+      ]
+        .filter(Boolean)
+        .join(' · ');
+
+      return `
+        <div class="fila fila--entre" style="padding:6px 0;border-top:1px solid var(--borde)">
+          <span style="flex:1;min-width:0">
+            <span class="jugador__nombre">${esc(n.nombre)}</span>
+            ${figura && figura.id === n.id ? '<span class="chip" style="margin-left:6px">Figura</span>' : ''}
+            ${hizo ? `<br /><span class="jugador__datos">${esc(hizo)}</span>` : ''}
+          </span>
+          <span class="${claseNota(n.nota)}">${n.nota.toFixed(1)}</span>
+        </div>
+      `;
+    })
+    .join('');
+
+  return `
+    <div class="tarjeta">
+      <p class="tarjeta__titulo">Puntajes</p>
+      ${filas}
+    </div>
+  `;
 }
 
 function estadistica(etiqueta: string, izquierda: string, derecha: string): string {

@@ -959,3 +959,55 @@ tr.zona-descenso td:first-child {
 tr.zona-ascenso td:first-child {
   box-shadow: inset 3px 0 0 var(--acento);
 }
+
+/* ------------------------------------------------------------------- rasgos */
+
+.rasgo {
+  display: inline-block;
+  margin: 3px 4px 0 0;
+  padding: 2px 7px;
+  border: 1px solid var(--acento-2);
+  border-radius: 999px;
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--acento-2);
+  letter-spacing: 0.2px;
+}
+
+.rasgo--contra {
+  border-color: #a4564a;
+  color: #d08578;
+}
+
+.nota {
+  min-width: 34px;
+  padding: 2px 0;
+  border-radius: 6px;
+  background: var(--panel-alto);
+  text-align: center;
+  font-weight: 700;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+.nota--alta {
+  background: #1f5d3a;
+  color: #d8f5e3;
+}
+
+.nota--buena {
+  color: #b9e4c9;
+}
+
+.nota--mala {
+  background: #5d2a22;
+  color: #f2c9c0;
+}
+
+.rasgo--incognita {
+  border-style: dashed;
+  border-color: var(--texto-suave);
+  color: var(--texto-suave);
+  min-width: 18px;
+  text-align: center;
+}

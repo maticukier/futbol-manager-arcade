@@ -24,6 +24,7 @@ export function configurarEquipo(estado: EstadoJuego, clubId: string, bando: Ban
     pos: j.pos,
     media: j.media,
     forma: j.forma,
+    rasgos: [...j.rasgos, ...(j.rasgoOculto ? [j.rasgoOculto] : [])],
   });
 
   return {

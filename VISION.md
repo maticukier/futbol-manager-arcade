@@ -138,8 +138,11 @@ destaca**, y no es lo normal. Que lo alcance o se quede lejos depende de tres
 cosas: el nivel del predio de entrenamiento, los minutos que juega y su
 rendimiento.
 
-**Consecuencia:** hace falta una nota de rendimiento por partido, que hoy no
-existe. Tambien la necesita la reputacion.
+**Consecuencia:** hace falta una nota de rendimiento por partido. **Ya existe**
+(`src/sim/rendimiento.ts`): cada partido reparte un puntaje de uno a diez a
+partir de goles, asistencias, remates, pases completados, quites, faltas,
+tarjetas y, para el arquero, atajadas y goles recibidos. Falta acumularla por
+temporada, que es lo que van a leer el potencial y la reputacion.
 
 ### Dos presupuestos separados
 La caja del club se divide en dos:
@@ -167,7 +170,9 @@ puede dar vuelta, pero mientras no se de vuelta, se programa asi.
    Alcanza para el coeficiente, para el mercado y para que el mundo se sienta
    vivo, sin guardar cien mil jugadores.
 3. **Que hace especial a un jugador.** Un par de caracteristicas visibles para
-   planificar, y una oculta que aparece despues de varios partidos.
+   planificar, y una oculta que aparece despues de varios partidos. **Hecho**
+   (`src/sim/rasgos.ts`): quince rasgos, cada uno con efecto real dentro del
+   partido, no una etiqueta. El oculto se destapa a los doce partidos.
 4. **Numeros o sensaciones.** Numeros en tu plantel; palabras en los de afuera
    hasta que los observes. Asi el ojeador sirve y el mercado tiene riesgo.
 5. **Un juvenil de 12 no muestra numeros.** Hasta los 15 solo se ve lo que dice
@@ -193,6 +198,8 @@ puede dar vuelta, pero mientras no se de vuelta, se programa asi.
 16. **La escalera de copas tambien baja.** Un grande que fracasa termina en la
     copa chica.
 17. **La nota de rendimiento por partido es visible,** tipo puntaje de diario.
+    **Hecho:** se muestra al terminar el partido, ordenada de mejor a peor y
+    con la figura marcada.
 
 ## Lo que falta definir
 

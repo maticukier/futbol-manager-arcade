@@ -84,7 +84,7 @@ for (let p = 0; p < PARTIDOS; p++) {
     if (dueno) {
       if (dueno.expulsado) anotar('la pelota la lleva un expulsado', `${donde} ${dueno.nombre}`);
       const d = Math.hypot(dueno.x - motor.pelota.x, dueno.z - motor.pelota.z);
-      if (d > 2.5) anotar('la pelota esta lejos de su dueno', `${donde} ${d.toFixed(1)} m`);
+      if (d > 2.5) anotar('la pelota esta lejos de su dueno', `${donde} ${d.toFixed(1)} m fase ${motor.fase}`);
     }
 
     // --- fases que se cuelgan ---

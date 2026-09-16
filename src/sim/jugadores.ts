@@ -1,5 +1,6 @@
 import type { Atributos, Jugador, PosicionCodigo } from './types';
 import { Rng } from './rng';
+import { sortearRasgos } from './rasgos';
 import {
   APELLIDOS,
   APELLIDOS_EXTRANJEROS,
@@ -95,6 +96,7 @@ export function generarJugador(rng: Rng, opciones: OpcionesJugador): Jugador {
   const margen = edad <= 20 ? rng.int(8, 22) : edad <= 24 ? rng.int(3, 12) : rng.int(0, 4);
   const potencial = Math.min(99, media + margen);
   const valor = valorDeMercado(media, edad, potencial);
+  const { rasgos, rasgoOculto } = sortearRasgos(rng, pos, attrs, media);
 
   return {
     id: nuevoId('j'),
@@ -116,6 +118,9 @@ export function generarJugador(rng: Rng, opciones: OpcionesJugador): Jugador {
     amarillasTemporada: 0,
     sancionPartidos: 0,
     progreso: 0,
+    rasgos,
+    rasgoOculto,
+    partidosObservado: 0,
   };
 }
 

@@ -4,6 +4,8 @@
  * avance de temporada, tests).
  */
 
+import type { RasgoId } from './rasgos';
+
 export type PosicionCodigo = 'ARQ' | 'DEF' | 'MED' | 'DEL';
 
 /** Atributos 1-99, al estilo de las medias clasicas de los juegos de futbol. */
@@ -48,6 +50,12 @@ export interface Jugador {
   progreso: number;
   /** Liga de la que viene, si esta en el mercado internacional. */
   ligaOrigen?: string;
+  /** Rasgos a la vista: lo que se puede planificar antes de ficharlo. */
+  rasgos: RasgoId[];
+  /** El que recien se nota despues de verlo jugar varios partidos. */
+  rasgoOculto: RasgoId | null;
+  /** Partidos que el usuario le vio jugar, para destapar el rasgo oculto. */
+  partidosObservado: number;
 }
 
 export type Formacion = '4-4-2' | '4-3-3' | '3-5-2' | '5-3-2' | '4-2-3-1';

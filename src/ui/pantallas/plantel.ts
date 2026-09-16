@@ -4,7 +4,7 @@ import { clubPorId, plantelDe } from '@/sim/juego';
 import { onceTitular } from '@/sim/liga';
 import { FORMACIONES, ajustePorPuesto } from '@/sim/tacticas';
 import { SEMANAS_AVISO, primaDeRenovacion, renovarContrato, salarioPedido } from '@/sim/contratos';
-import { claseMedia, esc, estadoJugador, plata } from '../formato';
+import { chipsDeRasgos, claseMedia, esc, estadoJugador, pistaDeRasgoOculto, plata } from '../formato';
 
 let seleccionado: string | null = null;
 let orden: 'media' | 'pos' | 'edad' = 'media';
@@ -116,12 +116,16 @@ function filaSeleccionable(j: Jugador, detalle: string, titular: boolean): strin
   if (j.lesionSemanas > 0) clases.push('jugador--lesionado');
   const resaltado = seleccionado === j.id ? 'outline:2px solid var(--acento-2);' : '';
 
+  const rasgos = chipsDeRasgos(j);
+  const pista = pistaDeRasgoOculto(j);
+
   return `
     <button class="${clases.join(' ')}" style="${resaltado}" data-jugador="${esc(j.id)}">
       <span class="jugador__pos">${j.pos}</span>
       <span>
         <span class="jugador__nombre">${esc(j.nombre)}</span><br />
         <span class="jugador__datos">${esc(detalle)} · ${plata(j.valor)}</span>
+        ${rasgos || pista ? `<br />${rasgos}${pista}` : ''}
       </span>
       <span class="${claseMedia(j.media)}">${j.media}</span>
     </button>

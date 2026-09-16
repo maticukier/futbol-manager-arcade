@@ -1,4 +1,6 @@
 import type { Atributos, PosicionCodigo, Tacticas } from '@/sim/types';
+import type { EfectosRasgos, RasgoId } from '@/sim/rasgos';
+import type { EstadisticasJugador, NotaJugador } from '@/sim/rendimiento';
 
 export type Bando = 'usuario' | 'rival';
 
@@ -40,6 +42,16 @@ export interface JugadorPartido {
   marcaA: string | null;
   /** Indice de la ranura de la formacion que ocupa. */
   ranura: number;
+  /** Lo que sus rasgos le cambian dentro de la cancha. */
+  efectos: EfectosRasgos;
+  /**
+   * Como le esta saliendo el partido de hoy. Multiplica lo que hace. Sale de
+   * la forma del jugador y de su irregularidad, y se sortea una vez por
+   * partido: es lo que hace que un jugador tenga un mal dia.
+   */
+  rendimiento: number;
+  /** Lo que hizo en este partido. De aca sale su nota. */
+  stats: EstadisticasJugador;
 }
 
 export interface Pelota {
@@ -75,6 +87,8 @@ export interface JugadorDeEquipo {
   pos: PosicionCodigo;
   media: number;
   forma: number;
+  /** Rasgos que trae, incluido el oculto: la cancha no sabe de secretos. */
+  rasgos: RasgoId[];
 }
 
 export interface ConfiguracionPartido {
@@ -96,6 +110,8 @@ export interface ResultadoPartido {
   /** Ids de los que vieron amarilla o roja, para arrastrar sanciones. */
   amonestados: string[];
   expulsados: string[];
+  /** Nota de cada uno de los que jugaron, tipo puntaje de diario. */
+  notas: { usuario: NotaJugador[]; rival: NotaJugador[] };
 }
 
 /** Los tres botones cambian de funcion segun tengas o no la pelota. */

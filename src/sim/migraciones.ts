@@ -3,6 +3,7 @@ import { Rng, seedAleatoria } from './rng';
 import { CLUBES_SEGUNDA } from './nombres';
 import { crearClub } from './clubes';
 import { generarPlantel } from './jugadores';
+import { sortearRasgos } from './rasgos';
 import { generarFixture, onceAutomatico } from './liga';
 import { copaVacia, sortearCopa } from './copa';
 import { ENTRENAMIENTO_POR_DEFECTO, TACTICAS_POR_DEFECTO } from './tacticas';
@@ -11,7 +12,7 @@ import { ENTRENAMIENTO_POR_DEFECTO, TACTICAS_POR_DEFECTO } from './tacticas';
  * Version del formato de guardado. Sube solo cuando hace falta una migracion
  * que no se resuelve con un valor por defecto.
  */
-export const VERSION_PARTIDA = 3;
+export const VERSION_PARTIDA = 4;
 
 /**
  * Lleva una partida guardada al formato actual.
@@ -107,7 +108,7 @@ function normalizar(estado: EstadoJuego, rng: Rng): void {
   }
 
   for (const jugador of estado.jugadores) {
-    completarJugador(jugador);
+    completarJugador(jugador, rng);
   }
 
   for (const partido of estado.fixture) {
@@ -118,7 +119,16 @@ function normalizar(estado: EstadoJuego, rng: Rng): void {
   estado.copa = migrarCopa(estado, rng);
 }
 
-function completarJugador(j: Jugador): void {
+function completarJugador(j: Jugador, rng: Rng): void {
+  // Los rasgos aparecieron despues, asi que a los jugadores de una carrera ya
+  // empezada se les sortean ahora. No se pierde la carrera por esto: el
+  // jugador es el mismo, solo que ahora se le nota algo propio.
+  if (!Array.isArray(j.rasgos) || j.rasgoOculto === undefined) {
+    const sorteo = sortearRasgos(rng, j.pos, j.attrs, j.media);
+    j.rasgos = Array.isArray(j.rasgos) ? j.rasgos : sorteo.rasgos;
+    j.rasgoOculto = j.rasgoOculto ?? sorteo.rasgoOculto;
+  }
+  j.partidosObservado ??= 0;
   j.progreso ??= 0;
   j.amarillasTemporada ??= 0;
   j.sancionPartidos ??= 0;

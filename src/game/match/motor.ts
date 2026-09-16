@@ -1,5 +1,7 @@
 import { FORMACIONES } from '@/sim/tacticas';
 import type { Formacion } from '@/sim/types';
+import { efectosDe, type EfectosRasgos, type RasgoId } from '@/sim/rasgos';
+import { calcularNota, estadisticasVacias, type NotaJugador } from '@/sim/rendimiento';
 import {
   ACELERACION,
   ALCANCE_ALTO,
@@ -129,6 +131,13 @@ export class MotorPartido {
   private receptorId: string | null = null;
   /** Saque de lateral o de corner en curso: quien lo ejecuta y cuanto le falta. */
   private saque: { id: string; tiempo: number; corner: boolean } | null = null;
+  /** Quien dio el ultimo pase, para repartir la asistencia si termina en gol. */
+  private asistente: { id: string; hace: number } | null = null;
+  private pasadorEnCurso: string | null = null;
+  /** Si la pelota que viaja es un remate: de eso depende que sea atajada. */
+  private remateEnCurso: string | null = null;
+  /** Notas de los que ya salieron: su partido termino cuando los cambiaron. */
+  private notasCerradas: { bando: Bando; nota: NotaJugador }[] = [];
 
   constructor(config: ConfiguracionPartido) {
     this.config = config;
@@ -145,6 +154,7 @@ export class MotorPartido {
     return ranuras.map((ranura, i) => {
       const fuente = equipo.jugadores[i];
       const punto = this.aMundo(bando, ranura.x, ranura.y);
+      const efectos = efectosDe(fuente.rasgos ?? []);
       return {
         id: fuente.id,
         nombre: fuente.nombre,
@@ -170,8 +180,24 @@ export class MotorPartido {
         expulsado: false,
         marcaA: null,
         ranura: i,
+        efectos,
+        rendimiento: this.sortearRendimiento(fuente.forma, efectos),
+        stats: estadisticasVacias(),
       };
     });
+  }
+
+  /**
+   * Como le sale el partido de hoy a un jugador.
+   *
+   * Sale de su forma, con una dispersion que agranda el rasgo de irregular. Es
+   * lo que hace que un dia el mismo jugador sea otro, y lo que hace que valga
+   * la pena tenerle confianza a uno parejo aunque su media sea menor.
+   */
+  private sortearRendimiento(forma: number, efectos: EfectosRasgos): number {
+    const base = 0.9 + (forma / 100) * 0.16;
+    const dispersion = 0.09 * efectos.irregularidad;
+    return limitar(base + (Math.random() - 0.5) * 2 * dispersion, 0.68, 1.22);
   }
 
   /**
@@ -215,6 +241,9 @@ export class MotorPartido {
       // En el penal nadie se mueve: ya estan todos acomodados.
       if (this.fase !== 'penal') {
         this.moverJugadores(dt, entrada, true);
+        // Con el juego detenido tambien tienen cuerpo: sin esto caminan unos
+        // adentro de otros mientras se arma la barrera y arrancan encimados.
+        this.separarCuerpos();
         this.pegarPelotaAlDueno();
       }
       if (this.temporizadorFase <= 0) this.terminarFase();
@@ -231,6 +260,7 @@ export class MotorPartido {
 
     this.segundosJugados += dt;
     this.registrarPosesion(dt);
+    this.registrarMinutos(dt);
     this.elegirControlado();
     this.moverJugadores(dt, entrada, false);
     this.separarCuerpos();
@@ -271,6 +301,19 @@ export class MotorPartido {
       default:
         this.fase = 'jugando';
         break;
+    }
+  }
+
+  /** Reparte los minutos de juego, que es lo que hace comparable una nota. */
+  private registrarMinutos(dt: number): void {
+    const minutos = (dt * MINUTOS_POR_TIEMPO) / SEGUNDOS_POR_TIEMPO;
+    for (const j of this.jugadores) {
+      if (!j.expulsado) j.stats.minutos += minutos;
+    }
+    if (this.asistente) {
+      this.asistente.hace += dt;
+      // Una asistencia es el pase anterior al gol, no cualquier pase de antes.
+      if (this.asistente.hace > 9) this.asistente = null;
     }
   }
 
@@ -321,7 +364,17 @@ export class MotorPartido {
 
   private velocidadDe(j: JugadorPartido): number {
     const base = VELOCIDAD_MIN + (j.attrs.ritmo / 100) * (VELOCIDAD_MAX - VELOCIDAD_MIN);
-    return base * (0.78 + j.energia * 0.22);
+    return base * (0.78 + j.energia * 0.22) * this.comoLeSale(j);
+  }
+
+  /**
+   * Cuanto le esta saliendo el partido, ahora mismo. Es su dia mas lo que le
+   * cambie el segundo tiempo: el que crece con el partido se nota recien
+   * despues del entretiempo, que es cuando tiene que notarse.
+   */
+  private comoLeSale(j: JugadorPartido): number {
+    if (this.tiempoActual === 1) return j.rendimiento;
+    return j.rendimiento * j.efectos.segundoTiempo;
   }
 
   private masCercanoALaPelota(bando: Bando, incluirArquero: boolean): JugadorPartido | null {
@@ -376,7 +429,7 @@ export class MotorPartido {
       j.patada = Math.max(0, j.patada - dt);
       // El aire se gasta corriendo y se recupera trotando o parado, nunca al reves.
       const velocidad = Math.hypot(j.vx, j.vz);
-      const desgaste = dt * (0.0016 + velocidad * 0.0011) * (1.4 - j.attrs.fisico / 200);
+      const desgaste = dt * (0.0016 + velocidad * 0.0011) * (1.4 - j.attrs.fisico / 200) * j.efectos.desgaste;
       const recupera = velocidad < 2.2 ? dt * 0.012 : 0;
       j.energia = limitar(j.energia - desgaste + recupera, 0.35, 1);
 
@@ -385,6 +438,15 @@ export class MotorPartido {
         continue;
       }
       if (j.patada <= 0 && j.estado === 'pateando') j.estado = 'normal';
+
+      // El que va a sacar el lateral o el corner se queda quieto con la pelota
+      // hasta que le toque ponerla en juego. Va antes que todo lo demas: si no,
+      // la IA le hace jugar el pase en el primer cuadro y no hay saque.
+      if (this.saque && this.saque.id === j.id) {
+        j.vx = 0;
+        j.vz = 0;
+        continue;
+      }
 
       if (j.esArquero) {
         this.moverArquero(j, dt, detenido);
@@ -398,13 +460,6 @@ export class MotorPartido {
 
       if (!detenido && this.pelota.duenoId === j.id && (this.iaTotal || this.controladoId !== j.id)) {
         this.moverConPelotaIa(j, dt);
-        continue;
-      }
-
-      // El que va a sacar el lateral o el corner se queda quieto en su lugar.
-      if (this.saque && this.saque.id === j.id) {
-        j.vx = 0;
-        j.vz = 0;
         continue;
       }
 
@@ -698,7 +753,8 @@ export class MotorPartido {
     // Cuanto se parece el cambio que pide a la direccion en la que ya va.
     const alineacion = velocidad > 0.5 ? (j.vx * dvx + j.vz * dvz) / (velocidad * cambio) : 1;
     const agilidad = 0.75 + (j.attrs.regate / 100) * 0.5;
-    const tasa = (alineacion > 0.6 ? ACELERACION : alineacion < -0.6 ? FRENADO : GIRO) * agilidad;
+    const tasa =
+      (alineacion > 0.6 ? ACELERACION : alineacion < -0.6 ? FRENADO : GIRO) * agilidad * j.efectos.arranque;
 
     const paso = Math.min(cambio, tasa * dt);
     j.vx += (dvx / cambio) * paso;
@@ -728,7 +784,9 @@ export class MotorPartido {
       // se patea en cada jugada. Sin esto el partido es un festival de tiros
       // desde afuera que no entran nunca.
       const cerca = limitar(1 - distanciaArco / 32, 0, 1);
-      const ganas = (0.15 + j.attrs.tiro / 300) * cerca * cerca * 7;
+      // Al canonero le crece la gana justo donde el resto la pierde: lejos.
+      const desdeLejos = 1 + (j.efectos.tiroLejano - 1) * (1 - cerca);
+      const ganas = (0.15 + j.attrs.tiro / 300) * cerca * cerca * 7 * desdeLejos * j.efectos.egoismo;
       if (Math.random() < ganas * dt) {
         this.patear(j, 0.85);
         return;
@@ -745,7 +803,8 @@ export class MotorPartido {
       // Lejos del arco se juega; cerca se define. Sin esto el delantero busca
       // el pase perfecto dentro del area y el equipo remata siempre de lejos.
       const ganas =
-        (presionado ? 2.6 : gana > 7 ? 1.3 : 0.45) * limitar(distanciaArco / 28, 0.2, 1);
+        ((presionado ? 2.6 : gana > 7 ? 1.3 : 0.45) * limitar(distanciaArco / 28, 0.2, 1)) /
+        j.efectos.egoismo;
       if (Math.random() < ganas * dt) {
         this.pasar(j, direccion, 0, gana > 22 && Math.random() < 0.4, companero);
         return;
@@ -762,7 +821,7 @@ export class MotorPartido {
     }
     // Con cuanta soltura conduce depende del regate: un buen gambeteador se va
     // del que lo persigue, uno malo lo lleva encima. Antes todos conducian igual.
-    const conduccion = 0.92 + (j.attrs.regate / 100) * 0.18;
+    const conduccion = (0.92 + (j.attrs.regate / 100) * 0.18) * j.efectos.conduccion;
     this.irHacia(j, arco, limitar(objetivoZ, -ANCHO / 2 + 3, ANCHO / 2 - 3), dt, conduccion);
   }
 
@@ -873,7 +932,7 @@ export class MotorPartido {
     if (!dentroDelArea) return false;
 
     const suya = distancia2(arquero.x, arquero.z, this.pelota.x, this.pelota.z);
-    if (suya > 12) return false;
+    if (suya > 12 * arquero.efectos.salidaArquero) return false;
 
     let rivalMasCerca = Infinity;
     for (const j of this.jugadores) {
@@ -882,7 +941,7 @@ export class MotorPartido {
     }
 
     // Sale solo si llega claramente primero: dejar el arco vacio cuesta un gol.
-    return suya < rivalMasCerca - 0.5;
+    return suya < rivalMasCerca - 0.5 + (arquero.efectos.salidaArquero - 1) * 2.5;
   }
 
   /**
@@ -911,9 +970,9 @@ export class MotorPartido {
     const enCancha = this.activos();
     const minimo = RADIO_JUGADOR * 2;
 
-    // Dos pasadas: con una sola, en un amontonamiento de tres o mas, resolver
-    // un par vuelve a encimar otro y quedan cuerpos superpuestos.
-    for (let vuelta = 0; vuelta < 2; vuelta++) this.separarUnaVez(enCancha, minimo);
+    // Varias pasadas: resolver un par vuelve a encimar otro, asi que con una
+    // sola quedan cuerpos superpuestos cada vez que se juntan cuatro o cinco.
+    for (let vuelta = 0; vuelta < 4; vuelta++) this.separarUnaVez(enCancha, minimo);
   }
 
   private separarUnaVez(enCancha: JugadorPartido[], minimo: number): void {
@@ -1016,7 +1075,7 @@ export class MotorPartido {
    * errarla ahi deja el arco solo.
    */
   private iaSeBarre(j: JugadorPartido, dueno: JugadorPartido, dt: number): boolean {
-    if (j.estado !== 'normal' || j.bloqueo > 0) return false;
+    if (j.estado !== 'normal' || j.bloqueo > 0 || this.saque) return false;
     const d = distancia2(j.x, j.z, dueno.x, dueno.z);
     if (d > ALCANCE_DE_BARRIDA || d < 0.9) return false;
 
@@ -1025,7 +1084,7 @@ export class MotorPartido {
     if (this.esUltimoHombre(j) && peligro < 0.8) return false;
 
     // Un defensor con oficio elige mejor el momento; uno flojo se tira igual.
-    const ganas = (0.12 + j.attrs.quite / 300) * (0.45 + peligro);
+    const ganas = (0.12 + j.attrs.quite / 300) * (0.45 + peligro) * j.efectos.barrida;
     if (Math.random() > ganas * dt * 7) return false;
 
     j.rumbo = Math.atan2(dueno.z - j.z, dueno.x - j.x);
@@ -1049,7 +1108,7 @@ export class MotorPartido {
     if (j.estado !== 'normal') return;
     j.estado = 'barrida';
     j.temporizador = 0.55;
-    const velocidad = this.velocidadDe(j) * 1.7;
+    const velocidad = Math.min(this.velocidadDe(j) * 1.7, VELOCIDAD_MAX * 1.55);
     j.vx = Math.cos(j.rumbo) * velocidad;
     j.vz = Math.sin(j.rumbo) * velocidad;
   }
@@ -1078,11 +1137,18 @@ export class MotorPartido {
 
   private revisarContactoBarrida(j: JugadorPartido): void {
     const dueno = this.porId(this.pelota.duenoId);
+    // Al que esta sacando un lateral o un corner no se le entra: la pelota
+    // todavia no esta en juego.
+    if (this.saque) return;
 
     if (distancia2(j.x, j.z, this.pelota.x, this.pelota.z) < 1.4 && this.pelota.y < 1) {
       // Llego a la pelota: la despeja hacia adelante y el rival la pierde.
       this.pelota.duenoId = null;
       this.pelota.ultimoToqueId = j.id;
+      j.stats.quites += 1;
+      this.asistente = null;
+      this.pasadorEnCurso = null;
+      this.remateEnCurso = null;
       const angulo = j.rumbo + (Math.random() - 0.5) * 0.7;
       const fuerza = 7 + j.attrs.quite / 12;
       this.pelota.vx = Math.cos(angulo) * fuerza;
@@ -1103,6 +1169,7 @@ export class MotorPartido {
 
   private cobrarFalta(victima: JugadorPartido, infractor: JugadorPartido): void {
     this.faltas[infractor.bando] += 1;
+    infractor.stats.faltas += 1;
     infractor.estado = 'caido';
     infractor.temporizador = 1.4;
     victima.estado = 'caido';
@@ -1160,6 +1227,7 @@ export class MotorPartido {
 
   private amonestar(j: JugadorPartido): string {
     j.amarillas += 1;
+    j.stats.amarillas += 1;
     this.amonestados.push(j.id);
     if (j.bando === 'usuario') this.amarillas.usuario += 1;
     else this.amarillas.rival += 1;
@@ -1170,9 +1238,16 @@ export class MotorPartido {
   private expulsar(j: JugadorPartido): string {
     if (j.expulsado) return j.nombre;
     j.expulsado = true;
+    j.stats.rojas += 1;
     this.expulsados.push(j.id);
     if (j.bando === 'usuario') this.rojas.usuario += 1;
     else this.rojas.rival += 1;
+
+    // Si la tenia, la suelta: se va de la cancha, no se lleva la pelota.
+    if (this.pelota.duenoId === j.id) {
+      this.soltarPelota(j);
+      this.saque = null;
+    }
 
     // Lo saco de la cancha para que no moleste ni intercepte.
     j.x = 0;
@@ -1203,6 +1278,7 @@ export class MotorPartido {
       j.rumbo = angulo + Math.PI;
       j.estado = 'normal';
     });
+    this.separarCuerpos();
   }
 
   // ------------------------------------------------------------------ penales
@@ -1250,6 +1326,7 @@ export class MotorPartido {
       j.x = puntoX - (6 + (fila % 5) * 2.2) * lado;
       j.z = ((fila % 9) - 4) * 3.4;
     }
+    this.separarCuerpos();
   }
 
   /** Mientras dura el penal solo se puede apuntar y patear. */
@@ -1322,11 +1399,11 @@ export class MotorPartido {
     intencionZ: number,
     bombeado: boolean,
     elegido: JugadorPartido | null = null,
-  ): void {
+  ): boolean {
     const companeros = this.jugadores.filter(
       (o) => o.bando === j.bando && o.id !== j.id && !o.esArquero && o.estado !== 'caido' && !o.expulsado,
     );
-    if (companeros.length === 0) return;
+    if (companeros.length === 0) return false;
 
     const largo = Math.hypot(intencionX, intencionZ) || 1;
     const dirX = intencionX / largo;
@@ -1334,7 +1411,7 @@ export class MotorPartido {
     const direccionAtaque = j.bando === 'usuario' ? 1 : -1;
 
     const mejor = elegido ?? this.elegirDestino(j, dirX, dirZ, bombeado, companeros, direccionAtaque);
-    if (!mejor) return;
+    if (!mejor) return false;
 
     // Le adelanto el pase a donde va a estar.
     const anticipo = bombeado ? 0.6 : 0.3;
@@ -1344,6 +1421,9 @@ export class MotorPartido {
 
     this.soltarPelota(j);
     this.receptorId = mejor.id;
+    j.stats.pases += 1;
+    this.pasadorEnCurso = j.id;
+    this.remateEnCurso = null;
     j.estado = 'pateando';
     j.patada = 0.25;
 
@@ -1364,6 +1444,7 @@ export class MotorPartido {
       this.pelota.vy = 0;
     }
     this.eventos.push({ tipo: 'pase' });
+    return true;
   }
 
   /**
@@ -1428,7 +1509,7 @@ export class MotorPartido {
 
       const marca = this.rivalMasCercano(c);
       const libre = marca ? Math.min(1, distancia2(c.x, c.z, marca.x, marca.z) / 7) : 1;
-      const avance = ((c.x - j.x) * direccionAtaque) / 30;
+      const avance = (((c.x - j.x) * direccionAtaque) / 30) * j.efectos.paseFiltrado;
       // Un pase que alguien va a cortar no es una opcion, es perder la pelota.
       const llega = this.paseSeguro(j, c.x, c.z, bombeado ? Math.max(9, d / 1.2) : limitar(d * 1.5, 9, 26));
 
@@ -1454,12 +1535,14 @@ export class MotorPartido {
     const d = Math.hypot(dx, dz) || 1;
 
     // La punteria empeora con la distancia y mejora con el atributo de tiro.
-    const dispersion = ((100 - j.attrs.tiro) / 100) * 0.085 + (d / LARGO) * 0.12;
+    const dispersion = (((100 - j.attrs.tiro) / 100) * 0.085 + (d / LARGO) * 0.12) / j.efectos.punteria;
     const desvio = (Math.random() - 0.5) * 2 * dispersion;
     const angulo = Math.atan2(dz, dx) + desvio;
 
     const fuerza = limitar(19 + potencia * 12 + j.attrs.tiro * 0.06, 16, 34);
-    const vuelo = d / fuerza;
+    // Piso al tiempo de vuelo: de cerca la division se dispara y la pelota sale
+    // para la luna en vez de ir al arco.
+    const vuelo = Math.max(d / fuerza, 0.16);
     const alturaObjetivo = limitar(0.4 + Math.random() * (ARCO_ALTO - 0.6), 0.3, ARCO_ALTO - 0.15);
 
     this.soltarPelota(j);
@@ -1470,6 +1553,9 @@ export class MotorPartido {
     this.pelota.vz = Math.sin(angulo) * fuerza;
     this.pelota.vy = (alturaObjetivo - RADIO_PELOTA + 0.5 * GRAVEDAD * vuelo * vuelo) / vuelo;
 
+    j.stats.remates += 1;
+    this.remateEnCurso = j.id;
+    this.pasadorEnCurso = null;
     if (j.bando === 'usuario') this.remates.usuario += 1;
     else this.remates.rival += 1;
     this.eventos.push({ tipo: 'patada', fuerza: potencia });
@@ -1504,6 +1590,8 @@ export class MotorPartido {
       const probabilidad = dt * 0.85 * (0.35 + rival.attrs.quite / 110) * (1 - dueno.attrs.regate / 160);
       if (Math.random() > probabilidad) continue;
 
+      rival.stats.quites += 1;
+      this.asistente = null;
       this.pelota.duenoId = null;
       this.pelota.ultimoToqueId = rival.id;
       const angulo = Math.atan2(this.pelota.z - dueno.z, this.pelota.x - dueno.x) + (Math.random() - 0.5);
@@ -1600,7 +1688,7 @@ export class MotorPartido {
 
     for (const j of this.jugadores) {
       if (j.bloqueo > 0 || j.estado === 'caido' || j.expulsado) continue;
-      const alcance = j.esArquero ? ALCANCE_ALTO_ARQUERO : ALCANCE_ALTO;
+      const alcance = (j.esArquero ? ALCANCE_ALTO_ARQUERO : ALCANCE_ALTO) * j.efectos.juegoAereo;
       if (alturaMinima > alcance) continue;
 
       // El arquero no corre tres metros en tres decimas: se estira. Su alcance
@@ -1691,7 +1779,33 @@ export class MotorPartido {
     this.pelota.duenoId = mejor.id;
     this.pelota.ultimoToqueId = mejor.id;
     this.receptorId = null;
+    this.cerrarJugada(mejor);
     if (mejor.esArquero) this.tiempoArqueroConPelota = 0;
+  }
+
+  /**
+   * Cierra lo que venia viajando cuando alguien se queda con la pelota: el pase
+   * fue bueno o no, el remate fue atajada o no, y queda anotado quien puede
+   * reclamar la asistencia si esto termina en gol.
+   */
+  private cerrarJugada(quien: JugadorPartido): void {
+    const pasador = this.porId(this.pasadorEnCurso);
+    if (pasador) {
+      if (pasador.bando === quien.bando && pasador.id !== quien.id) {
+        pasador.stats.pasesCompletados += 1;
+        this.asistente = { id: pasador.id, hace: 0 };
+      } else {
+        this.asistente = null;
+      }
+      this.pasadorEnCurso = null;
+    }
+
+    const rematador = this.porId(this.remateEnCurso);
+    if (rematador) {
+      if (quien.esArquero && quien.bando !== rematador.bando) quien.stats.atajadas += 1;
+      if (quien.bando !== rematador.bando) this.asistente = null;
+      this.remateEnCurso = null;
+    }
   }
 
   private revisarArqueroConPelota(dt: number): void {
@@ -1719,6 +1833,10 @@ export class MotorPartido {
   // ------------------------------------------------------- limites y reinicios
 
   private revisarLimites(): void {
+    // Mientras se prepara un lateral o un corner la pelota todavia no esta en
+    // juego: no puede volver a salir ni terminar en gol.
+    if (this.saque) return;
+
     const { x, z, y } = this.pelota;
 
     if (Math.abs(x) >= LARGO / 2 && dentroDelArco(z) && y < ARCO_ALTO && this.pelota.duenoId === null) {
@@ -1791,6 +1909,10 @@ export class MotorPartido {
       ? Math.atan2(-z, this.arcoRivalDe(bando) - x)
       : Math.atan2(-Math.sign(z || 1), bando === 'usuario' ? 1 : -1);
 
+    // La pelota se va con el, si no queda un cuadro tirada donde salio.
+    this.pelota.x = x;
+    this.pelota.z = z;
+    this.pelota.y = corner ? RADIO_PELOTA : 1.85;
     this.pelota.duenoId = ejecutor.id;
     this.pelota.ultimoToqueId = ejecutor.id;
     this.receptorId = null;
@@ -1819,13 +1941,21 @@ export class MotorPartido {
     this.saque = null;
     const direccion = ejecutor.bando === 'usuario' ? 1 : -1;
 
-    if (corner) {
-      // El corner va al area, no al companero mejor parado en el medio campo.
-      const arco = this.arcoRivalDe(ejecutor.bando);
-      this.pasar(ejecutor, arco - ejecutor.x, -ejecutor.z, true);
-      return;
-    }
-    this.pasar(ejecutor, direccion, -Math.sign(ejecutor.z || 1), true);
+    const haciaAdentro = -Math.sign(ejecutor.z || 1);
+    const intencionX = corner ? this.arcoRivalDe(ejecutor.bando) - ejecutor.x : direccion;
+    const intencionZ = corner ? -ejecutor.z : haciaAdentro;
+    if (this.pasar(ejecutor, intencionX, intencionZ, true, null)) return;
+
+    // Si no encontro a quien darsela, la pone en juego igual. Sin esto el que
+    // saca se queda con la pelota en la mano para siempre y el partido muere.
+    const largo = Math.hypot(intencionX, intencionZ) || 1;
+    this.soltarPelota(ejecutor);
+    ejecutor.estado = 'pateando';
+    ejecutor.patada = 0.25;
+    this.pelota.vx = (intencionX / largo) * 13;
+    this.pelota.vz = (intencionZ / largo) * 13;
+    this.pelota.vy = 5.5;
+    this.eventos.push({ tipo: 'pase' });
   }
 
   private darLaPelotaA(bando: Bando, x: number, z: number, jugadorId: string | null): void {
@@ -1870,6 +2000,23 @@ export class MotorPartido {
       if (suyo && autor) this.goleadoresRival.push(autor.id);
     }
 
+    if (suyo && autor) {
+      autor.stats.goles += 1;
+      const asistente = this.porId(this.asistente?.id ?? null);
+      if (asistente && asistente.bando === bando && asistente.id !== autor.id) {
+        asistente.stats.asistencias += 1;
+      }
+    }
+    this.asistente = null;
+    this.pasadorEnCurso = null;
+    this.remateEnCurso = null;
+
+    // Al arquero que se lo comieron le queda anotado, que es lo que mas le pesa.
+    const arqueroBatido = this.jugadores.find(
+      (j) => j.esArquero && j.bando !== bando && !j.expulsado,
+    );
+    if (arqueroBatido) arqueroBatido.stats.golesRecibidos += 1;
+
     this.fase = 'gol';
     this.eventos.push({ tipo: 'gol' });
     this.prepararSaqueInicial(bando === 'usuario' ? 'rival' : 'usuario');
@@ -1887,10 +2034,13 @@ export class MotorPartido {
       const direccion = j.bando === 'usuario' ? 1 : -1;
       j.x = direccion * ((j.baseLargo - 1) * (LARGO / 2) - 1.2);
       j.z = punto.z;
-      // El que no saca espera afuera del circulo central.
+      // El que no saca espera afuera del circulo central. Se corre para atras
+      // lo que le falta, no se lo aplasta contra el borde: apretandolos todos
+      // sobre la misma linea terminaban dos en el mismo lugar.
       if (j.bando !== bando) {
         const fuera = Math.sqrt(Math.max(0, 9.6 * 9.6 - j.z * j.z));
-        j.x = direccion > 0 ? Math.min(j.x, -fuera) : Math.max(j.x, fuera);
+        const dentro = fuera - Math.abs(j.x);
+        if (dentro > 0) j.x -= direccion * dentro;
       }
       j.x = limitar(j.x, -LARGO / 2 + 2, LARGO / 2 - 2);
       j.vx = 0;
@@ -1918,6 +2068,9 @@ export class MotorPartido {
       this.pelota.ultimoToqueId = sacador.id;
       if (bando === 'usuario') this.controladoId = sacador.id;
     }
+
+    // Acomodar a los once a mano puede dejar dos en el mismo lugar.
+    this.separarCuerpos();
   }
 
   // ---------------------------------------------------------------- salida
@@ -1938,7 +2091,27 @@ export class MotorPartido {
       rojas: { ...this.rojas },
       amonestados: [...this.amonestados],
       expulsados: [...this.expulsados],
+      notas: {
+        usuario: this.notasDe('usuario'),
+        rival: this.notasDe('rival'),
+      },
     };
+  }
+
+  private notaDe(j: JugadorPartido): NotaJugador {
+    return {
+      id: j.id,
+      nombre: j.nombre,
+      nota: calcularNota(j.stats, j.esArquero, this.comoLeSale(j)),
+      stats: { ...j.stats },
+    };
+  }
+
+  /** Notas de los once que estan mas las de los que ya salieron. */
+  private notasDe(bando: Bando): NotaJugador[] {
+    const enCancha = this.jugadores.filter((j) => j.bando === bando).map((j) => this.notaDe(j));
+    const salieron = this.notasCerradas.filter((n) => n.bando === bando).map((n) => n.nota);
+    return [...enCancha, ...salieron].sort((a, b) => b.nota - a.nota);
   }
 
   // ---------------------------------------------------------------- cambios
@@ -1961,6 +2134,13 @@ export class MotorPartido {
     sale.attrs = entra.attrs;
     sale.pos = entra.pos;
     sale.energia = 0.7 + (entra.forma / 100) * 0.3;
+    // El que entra trae lo suyo: sus rasgos y su dia.
+    // El partido del que sale termina aca: le cierro la nota antes de que la
+    // ficha pase a ser la del que entra.
+    this.notasCerradas.push({ bando, nota: this.notaDe(sale) });
+    sale.efectos = efectosDe(entra.rasgos ?? []);
+    sale.rendimiento = this.sortearRendimiento(entra.forma, sale.efectos);
+    sale.stats = estadisticasVacias();
     sale.estado = 'normal';
     sale.temporizador = 0;
     sale.bloqueo = 0;
@@ -1976,6 +2156,7 @@ export class MotorPartido {
       pos: sale.pos,
       media: 0,
       forma: 0,
+      rasgos: this.rasgosOriginales(idSale, equipo),
     });
 
     if (this.controladoId === idSale) this.controladoId = entra.id;
@@ -1987,6 +2168,10 @@ export class MotorPartido {
 
   private nombreOriginal(id: string, equipo: ConfiguracionEquipo): string {
     return equipo.jugadores.find((j) => j.id === id)?.nombre ?? 'Jugador';
+  }
+
+  private rasgosOriginales(id: string, equipo: ConfiguracionEquipo): RasgoId[] {
+    return equipo.jugadores.find((j) => j.id === id)?.rasgos ?? [];
   }
 
   /** Cambia el dibujo sin frenar el partido: reparte las ranuras nuevas. */

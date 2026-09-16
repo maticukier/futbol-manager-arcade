@@ -1,4 +1,5 @@
 import type { Club, Jugador } from '@/sim/types';
+import { rasgoOcultoVisible, rasgoPorId } from '@/sim/rasgos';
 
 export function plata(monto: number): string {
   const signo = monto < 0 ? '-' : '';
@@ -59,4 +60,45 @@ export function filaJugador(j: Jugador, opciones: { titular?: boolean; extra?: s
       <span class="${claseMedia(j.media)}">${j.media}</span>
     </button>
   `;
+}
+
+
+/**
+ * Los rasgos de un jugador, como se leen en su ficha.
+ *
+ * El oculto solo aparece cuando el usuario ya lo vio jugar lo suficiente: esa
+ * espera es la gracia, porque es lo que hace que conocer a un jugador sea algo
+ * que pasa con el tiempo y no un dato que viene en la etiqueta.
+ */
+export function chipsDeRasgos(j: Jugador): string {
+  const visibles = j.rasgos.map((id) => rasgoPorId(id)).filter((r) => r !== null);
+  if (j.rasgoOculto && rasgoOcultoVisible(j.partidosObservado)) {
+    const oculto = rasgoPorId(j.rasgoOculto);
+    if (oculto) visibles.push(oculto);
+  }
+  if (visibles.length === 0) return '';
+
+  return visibles
+    .map(
+      (r) => `<span class="rasgo${r.contra ? ' rasgo--contra' : ''}" title="${esc(r.descripcion)}">${esc(r.nombre)}</span>`,
+    )
+    .join('');
+}
+
+/**
+ * La marca de que a este todavia le queda algo por mostrar. Es un signo de
+ * pregunta y no una frase porque va en cada fila del plantel: lo importante es
+ * que se note que hay algo, no explicarlo veinte veces.
+ */
+export function pistaDeRasgoOculto(j: Jugador): string {
+  if (!j.rasgoOculto || rasgoOcultoVisible(j.partidosObservado)) return '';
+  return '<span class="rasgo rasgo--incognita" title="Algo suyo todavia no se le noto. Hay que verlo jugar.">?</span>';
+}
+
+/** La nota de un partido, con color segun que tan buena fue. */
+export function claseNota(nota: number): string {
+  if (nota >= 8) return 'nota nota--alta';
+  if (nota >= 6.5) return 'nota nota--buena';
+  if (nota >= 5) return 'nota';
+  return 'nota nota--mala';
 }
