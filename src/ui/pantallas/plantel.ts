@@ -3,6 +3,7 @@ import type { Jugador } from '@/sim/types';
 import { clubPorId, plantelDe } from '@/sim/juego';
 import { onceTitular } from '@/sim/liga';
 import { FORMACIONES, ajustePorPuesto } from '@/sim/tacticas';
+import { SEMANAS_AVISO, primaDeRenovacion, renovarContrato, salarioPedido } from '@/sim/contratos';
 import { claseMedia, esc, estadoJugador, plata } from '../formato';
 
 let seleccionado: string | null = null;
@@ -57,8 +58,48 @@ export function render(app: App): string {
       <div class="lista">${filasSuplentes || '<p class="suave">No hay suplentes disponibles.</p>'}</div>
     </div>
 
+    ${renderContratos(plantel)}
+
     <button class="boton boton--fantasma" data-accion="auto">Alinear el mejor once automatico</button>
     <button class="boton boton--fantasma" data-accion="mercado">Mercado de pases</button>
+  `;
+}
+
+/** Los contratos que se estan por vencer, para renovarlos a tiempo. */
+function renderContratos(plantel: Jugador[]): string {
+  const porVencer = plantel
+    .filter((j) => j.contratoSemanas <= SEMANAS_AVISO)
+    .sort((a, b) => a.contratoSemanas - b.contratoSemanas);
+
+  if (porVencer.length === 0) return '';
+
+  const filas = porVencer
+    .map(
+      (j) => `
+        <div style="padding:9px 0;border-top:1px solid var(--borde)">
+          <div class="fila fila--entre">
+            <strong style="font-size:13.5px">${esc(j.nombre)}</strong>
+            <span class="chip" style="${j.contratoSemanas <= 10 ? 'background:#7f2a22;color:#fff' : ''}">
+              ${j.contratoSemanas} ${j.contratoSemanas === 1 ? 'semana' : 'semanas'}
+            </span>
+          </div>
+          <p class="suave" style="font-size:12px;margin:5px 0 8px">
+            Pide ${plata(salarioPedido(j))} por semana y ${plata(primaDeRenovacion(j))} de prima.
+          </p>
+          <button class="boton boton--chico boton--primario" data-renovar="${esc(j.id)}">Renovar</button>
+        </div>
+      `,
+    )
+    .join('');
+
+  return `
+    <div class="tarjeta" style="border-color:var(--acento-2)">
+      <p class="tarjeta__titulo">Contratos por vencer</p>
+      <p class="suave" style="font-size:12.5px;margin:0">
+        Si llegan a cero se van libres y no entra un peso.
+      </p>
+      ${filas}
+    </div>
   `;
 }
 
@@ -126,6 +167,15 @@ export function montar(app: App, raiz: HTMLElement): void {
   raiz.querySelector<HTMLSelectElement>('[data-orden]')?.addEventListener('change', (evento) => {
     orden = (evento.target as HTMLSelectElement).value as typeof orden;
     app.refrescar();
+  });
+
+  raiz.querySelectorAll<HTMLElement>('[data-renovar]').forEach((nodo) => {
+    nodo.addEventListener('click', (evento) => {
+      evento.stopPropagation();
+      app.aviso(renovarContrato(estado, nodo.dataset.renovar!));
+      app.guardarPartida();
+      app.refrescar();
+    });
   });
 
   raiz.querySelectorAll<HTMLElement>('[data-accion]').forEach((nodo) => {

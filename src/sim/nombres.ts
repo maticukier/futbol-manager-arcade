@@ -27,7 +27,7 @@ export interface PlantillaClub {
   capacidad: number;
 }
 
-/** Liga de 12 equipos: temporada de 22 jornadas, buena para sesiones de celular. */
+/** Primera division: 12 equipos, temporada de 22 jornadas. */
 export const CLUBES_LIGA: PlantillaClub[] = [
   { nombre: 'Atletico Riachuelo', abrev: 'RIA', colorPrimario: '#1e5fd8', colorSecundario: '#f4c542', reputacion: 82, estadio: 'La Caldera', capacidad: 48000 },
   { nombre: 'Club Puerto Norte', abrev: 'PNO', colorPrimario: '#d02b2b', colorSecundario: '#ffffff', reputacion: 79, estadio: 'El Muelle', capacidad: 42000 },
@@ -41,6 +41,22 @@ export const CLUBES_LIGA: PlantillaClub[] = [
   { nombre: 'Estrella del Plata', abrev: 'EDP', colorPrimario: '#f1c40f', colorSecundario: '#1b1b1b', reputacion: 45, estadio: 'El Dorado', capacidad: 14000 },
   { nombre: 'Defensores del Alto', abrev: 'DAL', colorPrimario: '#34495e', colorSecundario: '#e74c3c', reputacion: 41, estadio: 'La Barranca', capacidad: 12000 },
   { nombre: 'Juventud Obrera', abrev: 'JOB', colorPrimario: '#7f8c8d', colorSecundario: '#f39c12', reputacion: 36, estadio: 'El Sindicato', capacidad: 9000 },
+];
+
+/** Segunda division: los que pelean por subir. */
+export const CLUBES_SEGUNDA: PlantillaClub[] = [
+  { nombre: 'Talleres del Sud', abrev: 'TSU', colorPrimario: '#1e6091', colorSecundario: '#ffffff', reputacion: 38, estadio: 'La Fundicion', capacidad: 11000 },
+  { nombre: 'Atletico Los Olmos', abrev: 'AOL', colorPrimario: '#b5651d', colorSecundario: '#1b1b1b', reputacion: 35, estadio: 'La Arboleda', capacidad: 9500 },
+  { nombre: 'Deportivo Cienaga', abrev: 'DCI', colorPrimario: '#6a994e', colorSecundario: '#f2f2f2', reputacion: 34, estadio: 'El Bajo', capacidad: 8000 },
+  { nombre: 'Racing de Lomas', abrev: 'RLO', colorPrimario: '#457b9d', colorSecundario: '#f1faee', reputacion: 33, estadio: 'Las Lomas', capacidad: 8500 },
+  { nombre: 'Union Ferroviaria', abrev: 'UFE', colorPrimario: '#9d0208', colorSecundario: '#ffba08', reputacion: 32, estadio: 'El Taller', capacidad: 7500 },
+  { nombre: 'Sportivo Almagro', abrev: 'SAL', colorPrimario: '#7209b7', colorSecundario: '#ffffff', reputacion: 31, estadio: 'El Parque', capacidad: 7000 },
+  { nombre: 'Club Viento Sur', abrev: 'CVS', colorPrimario: '#0096c7', colorSecundario: '#03045e', reputacion: 29, estadio: 'La Rambla', capacidad: 6500 },
+  { nombre: 'Defensores del Puerto', abrev: 'DPU', colorPrimario: '#2d6a4f', colorSecundario: '#d8f3dc', reputacion: 28, estadio: 'El Espigon', capacidad: 6000 },
+  { nombre: 'Juventud del Norte', abrev: 'JNO', colorPrimario: '#e07a5f', colorSecundario: '#3d405b', reputacion: 26, estadio: 'El Monte', capacidad: 5500 },
+  { nombre: 'Central Canteras', abrev: 'CCA', colorPrimario: '#5f6c7b', colorSecundario: '#fffffe', reputacion: 25, estadio: 'La Cantera', capacidad: 5000 },
+  { nombre: 'Sol de Mayo', abrev: 'SDM', colorPrimario: '#f4a261', colorSecundario: '#264653', reputacion: 23, estadio: 'El Solar', capacidad: 4500 },
+  { nombre: 'Barrio Nuevo FC', abrev: 'BNU', colorPrimario: '#8d99ae', colorSecundario: '#ef233c', reputacion: 21, estadio: 'El Barrio', capacidad: 4000 },
 ];
 
 /** Ligas inventadas del exterior, para el mercado internacional. */

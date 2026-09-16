@@ -5,6 +5,8 @@ Juego de futbol para celular que mezcla tres cosas que normalmente vienen separa
 - **Partido arcade en 3D** (estilo Dream League): jugas vos, apaisado, con joystick virtual y tres botones que cambian de funcion segun tengas o no la pelota.
 - **Direccion tecnica** (estilo Football Manager): once titular, formacion, actitud del equipo, lesiones, moral y mercado de pases.
 - **Presidencia del club** (estilo Football Chairman): caja, precio de la entrada, socios, estadio, cantera, sponsors y un directorio que te puede echar.
+- **Dos divisiones y copa nacional**: 24 clubes, ascensos y descensos, y una
+  copa de eliminacion directa donde te podes cruzar con cualquiera.
 - **Mercado con mercado internacional**: filtros por puesto, media, precio y
   procedencia, con jugadores libres de ocho ligas del exterior.
 
@@ -72,6 +74,9 @@ funcion segun quien tenga la pelota, como en Dream League:
 | Azul | Pase bombeado y centros | Presion en bloque | L |
 | Amarillo | Correr (mantener) | Correr (mantener) | Shift |
 
+Desde el boton de pausa entras al menu del partido: estadisticas, hasta cinco
+cambios y ajuste de formacion y actitud sin salir de la cancha.
+
 El boton amarillo tiene un anillo que muestra el aire que le queda al jugador.
 Esprintar lo gasta rapido y con la pelota se pierde algo de control, asi que no
 conviene tenerlo apretado todo el partido.
@@ -87,6 +92,14 @@ Tu equipo ataca siempre hacia la derecha, tambien en el segundo tiempo.
 Los laterales, los corners y los saques de arco no cortan el partido: la pelota
 queda en el piso, el que saca ya la tiene y la jugada sigue. Solo se frena de
 verdad en el gol, la falta, el entretiempo y el final.
+
+### Sobre el arbitro
+
+Las barridas se juzgan segun la velocidad del envion y si cortaban una jugada
+clara: pueden salir limpias, amarilla o roja. Dos amarillas es roja y te quedas
+con diez. Falta dentro del area es penal, y los tiros libres cerca del area
+arman barrera. Las amarillas se acumulan en la temporada: cada cinco te cuestan
+una fecha, y la roja cuesta dos.
 
 ### Sobre la barrida
 
@@ -117,7 +130,9 @@ src/
     tacticas.ts   Formaciones y posiciones base en la cancha
     liga.ts       Fixture, tabla y simulacion de los partidos de la IA
     finanzas.ts   Taquilla, socios, sponsors, estadio y cantera
-    mercado.ts    Compra y venta de jugadores
+    mercado.ts    Compra y venta, con filtros y jugadores del exterior
+    copa.ts       Copa nacional de eliminacion directa
+    contratos.ts  Vencimientos, renovaciones y jugadores que se van libres
     juego.ts      Estado global, avance de fecha y cierre de temporada
   game/         Partido arcade en 3D
     match/motor.ts      Reglas, fisica e IA. No sabe que existe el 3D
@@ -125,6 +140,8 @@ src/
     match/jugador3d.ts  Jugadores armados con primitivas y animados por codigo
     match/interfaz.ts   Marcador, avisos, joystick y botones, en DOM
     match/mundo.ts      Medidas de la cancha, en metros
+    match/menuPausa.ts  Estadisticas, cambios y tactica sin salir del partido
+    match/sonido.ts     Hinchada, golpes y silbato sintetizados con WebAudio
   ui/           Pantallas de gestion en DOM (sin framework)
 ```
 
@@ -159,13 +176,11 @@ simular partidos enteros en milisegundos para medir el balance.
 
 ## Roadmap
 
-- [ ] Copa nacional en paralelo a la liga
-- [ ] Ascensos y descensos con segunda division
-- [ ] Cambios y tarjetas durante el partido
-- [ ] Barrera y remate en los tiros libres
-- [ ] Entrenamiento semanal que suba atributos concretos
-- [ ] Negociacion de contratos y jugadores que piden irse
-- [ ] Sonido y musica
+- [ ] Ojeadores y reportes de jugadores antes de ficharlos
+- [ ] Prensa y conferencias que muevan la moral del plantel
+- [ ] Modo dos jugadores en el mismo telefono
+- [ ] Estadisticas historicas por jugador y por temporada
+- [ ] Seleccion nacional y parones de liga
 
 ## Licencia
 

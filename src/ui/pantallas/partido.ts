@@ -45,6 +45,23 @@ export function render(app: App): string {
     `);
   }
 
+  if (resumen.copa) {
+    const c = resumen.copa;
+    bloques.push(`
+      <div class="tarjeta" style="border-color:var(--acento-2)">
+        <p class="tarjeta__titulo">Copa</p>
+        <div class="fila fila--entre">
+          <span>vs ${esc(c.rival)}</span>
+          <strong>${c.golesPropios} - ${c.golesRival}</strong>
+        </div>
+        <p class="suave" style="font-size:13px;margin:8px 0 0">
+          ${c.porPenales ? 'Se definio por penales. ' : ''}${c.paso ? 'Pasamos de ronda.' : 'Quedamos afuera.'}
+          ${c.premio > 0 ? ` Premio: ${plata(c.premio)}.` : ''}
+        </p>
+      </div>
+    `);
+  }
+
   if (resumen.ingresos.length > 0) {
     const filas = resumen.ingresos
       .map(

@@ -8,8 +8,10 @@ import {
   type ResultadoArcade,
   type ResumenJornada,
   type ResumenTemporada,
+  partidoDeCopaDelUsuario,
   partidoDelUsuario,
 } from '@/sim/juego';
+import type { ResultadoCopaUsuario } from '@/sim/copa';
 import { disponible, onceTitular } from '@/sim/liga';
 import type { ConfiguracionEquipo, ConfiguracionPartido, ResultadoPartido } from '@/game/match/entidades';
 import { esc, escudo, plata } from './formato';
@@ -162,22 +164,25 @@ export class App {
     this.despuesDeLaFecha();
   }
 
-  async jugarFecha(): Promise<void> {
+  async jugarFecha(modo: 'liga' | 'copa' = 'liga'): Promise<void> {
     const estado = this.exigirEstado();
-    const partido = partidoDelUsuario(estado);
-    if (!partido) {
+    const liga = partidoDelUsuario(estado);
+    const copa = partidoDeCopaDelUsuario(estado);
+    const cruce = modo === 'copa' ? copa : liga;
+
+    if (!cruce) {
       this.aviso('No hay partido para esta fecha.');
       return;
     }
 
-    const usuarioEsLocal = partido.localId === estado.clubUsuarioId;
-    const rivalId = usuarioEsLocal ? partido.visitanteId : partido.localId;
+    const usuarioEsLocal = cruce.localId === estado.clubUsuarioId;
+    const rivalId = usuarioEsLocal ? cruce.visitanteId : cruce.localId;
 
     const config: ConfiguracionPartido = {
       usuario: this.configurarEquipo(estado.clubUsuarioId, 'usuario'),
       rival: this.configurarEquipo(rivalId, 'rival'),
       usuarioEsLocal,
-      estadio: clubPorId(estado, partido.localId).estadio.nombre,
+      estadio: clubPorId(estado, cruce.localId).estadio.nombre,
     };
 
     this.contenedorPartido.hidden = false;
@@ -218,7 +223,10 @@ export class App {
         };
 
     this.ultimoArcade = resultado;
-    this.ultimoResumen = resolverJornada(estado, arcade);
+    this.ultimoResumen =
+      modo === 'copa'
+        ? resolverJornada(estado, null, arcade as ResultadoCopaUsuario)
+        : resolverJornada(estado, arcade);
     this.despuesDeLaFecha();
   }
 

@@ -71,8 +71,18 @@ export interface Estadio {
   nivel: number;
 }
 
+/** Reparto del foco del entrenamiento semanal. Los tres suman 100. */
+export interface Entrenamiento {
+  fisico: number;
+  tecnica: number;
+  tactica: number;
+}
+
+export type Division = 1 | 2;
+
 export interface Club {
   id: string;
+  division: Division;
   nombre: string;
   abrev: string;
   colorPrimario: string;
@@ -88,12 +98,14 @@ export interface Club {
   /** Nivel de la cantera: mejora los juveniles que aparecen cada temporada. */
   cantera: number;
   tacticas: Tacticas;
+  entrenamiento: Entrenamiento;
   /** ids de los 11 titulares elegidos por el usuario (o por la IA). */
   titulares: string[];
 }
 
 export interface Partido {
   id: string;
+  division: Division;
   jornada: number;
   localId: string;
   visitanteId: string;
@@ -102,6 +114,26 @@ export interface Partido {
   jugado: boolean;
   /** true si lo jugo el usuario en modo arcade. */
   arcade: boolean;
+}
+
+export interface LlaveCopa {
+  id: string;
+  ronda: number;
+  localId: string;
+  visitanteId: string;
+  golesLocal: number | null;
+  golesVisitante: number | null;
+  jugado: boolean;
+  /** Quien paso de ronda. */
+  ganadorId: string | null;
+}
+
+export interface Copa {
+  ronda: number;
+  llaves: LlaveCopa[];
+  /** Clubes que siguen vivos en la ronda actual. */
+  vivos: string[];
+  campeonId: string | null;
 }
 
 export interface FilaTabla {
@@ -154,6 +186,7 @@ export interface EstadoJuego {
   jornadaActual: number;
   /** Jugadores libres del exterior, ofrecidos en el mercado de pases. */
   mercadoExtranjero: string[];
+  copa: Copa;
   directorio: Directorio;
   bandeja: Mensaje[];
   finanzas: MovimientoFinanciero[];

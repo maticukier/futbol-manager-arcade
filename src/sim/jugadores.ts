@@ -37,8 +37,13 @@ export function calcularMedia(pos: PosicionCodigo, attrs: Atributos): number {
   return Math.max(1, Math.min(99, Math.round(total)));
 }
 
+/**
+ * Valor de mercado. La curva es empinada a proposito: un jugador de media 60
+ * sale unos 16 millones y uno de 90 pasa los 130, asi que armar un equipo de
+ * cracks se siente caro incluso con la caja llena.
+ */
 export function valorDeMercado(media: number, edad: number, potencial: number): number {
-  const base = Math.pow(Math.max(1, media - 30), 2.6) * 900;
+  const base = Math.pow(Math.max(1, media - 30), 3.1) * 420;
   const factorEdad = edad <= 21 ? 1.5 : edad <= 25 ? 1.3 : edad <= 29 ? 1.0 : edad <= 32 ? 0.6 : 0.3;
   const factorPotencial = 1 + Math.max(0, potencial - media) / 60;
   return Math.round((base * factorEdad * factorPotencial) / 1000) * 1000;
@@ -50,7 +55,7 @@ export function valorDeMercado(media: number, edad: number, potencial: number): 
  * asi que la taquilla es lo que deja margen.
  */
 export function salarioSemanal(valor: number, media: number): number {
-  return Math.round((valor * 0.05 + media * 3000) / 1000) * 1000;
+  return Math.round((valor * 0.018 + media * 4500) / 1000) * 1000;
 }
 
 let contadorId = 0;

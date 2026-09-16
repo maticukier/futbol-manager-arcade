@@ -8,7 +8,7 @@ import type {
   TipoMensaje,
 } from './types';
 import { Rng, seedAleatoria } from './rng';
-import { CLUBES_LIGA } from './nombres';
+import { CLUBES_LIGA, CLUBES_SEGUNDA } from './nombres';
 import {
   atributoAfectado,
   calcularMedia,
@@ -18,7 +18,7 @@ import {
   salarioSemanal,
   valorDeMercado,
 } from './jugadores';
-import { TACTICAS_POR_DEFECTO } from './tacticas';
+import { ENTRENAMIENTO_POR_DEFECTO, FOCOS, TACTICAS_POR_DEFECTO } from './tacticas';
 import {
   calcularTabla,
   fuerzaEquipo,
@@ -30,6 +30,17 @@ import {
   simularPartido,
   totalJornadas,
 } from './liga';
+import { avanzarContratos } from './contratos';
+import {
+  copaVacia,
+  esJornadaDeCopa,
+  llaveDelUsuario,
+  premioDeRonda,
+  resolverRondaDeCopa,
+  sortearCopa,
+  NOMBRES_DE_RONDA,
+  type ResultadoCopaUsuario,
+} from './copa';
 import {
   calcularTaquilla,
   clubUsuario,
@@ -65,8 +76,14 @@ export function crearMensaje(
 export function nuevaPartida(indiceClubUsuario: number, seed = seedAleatoria()): EstadoJuego {
   const rng = new Rng(seed);
 
-  const clubs: Club[] = CLUBES_LIGA.map((plantilla, i) => ({
+  const plantillas = [
+    ...CLUBES_LIGA.map((p) => ({ ...p, division: 1 as const })),
+    ...CLUBES_SEGUNDA.map((p) => ({ ...p, division: 2 as const })),
+  ];
+
+  const clubs: Club[] = plantillas.map((plantilla, i) => ({
     id: `c${i}`,
+    division: plantilla.division,
     nombre: plantilla.nombre,
     abrev: plantilla.abrev,
     colorPrimario: plantilla.colorPrimario,
@@ -80,6 +97,7 @@ export function nuevaPartida(indiceClubUsuario: number, seed = seedAleatoria()):
     sponsorSemanal: Math.round(plantilla.reputacion * 130_000),
     cantera: Math.max(1, Math.round(plantilla.reputacion / 12)),
     tacticas: { ...TACTICAS_POR_DEFECTO },
+    entrenamiento: { ...ENTRENAMIENTO_POR_DEFECTO },
     titulares: [],
   }));
 
@@ -93,7 +111,10 @@ export function nuevaPartida(indiceClubUsuario: number, seed = seedAleatoria()):
     club.titulares = onceAutomatico(club, plantel).map((j) => j.id);
   }
 
-  const fixture = generarFixture(clubs.map((c) => c.id), rng);
+  const fixture = [
+    ...generarFixture(clubs.filter((c) => c.division === 1).map((c) => c.id), rng, 1),
+    ...generarFixture(clubs.filter((c) => c.division === 2).map((c) => c.id), rng, 2),
+  ];
   const club = clubs[indiceClubUsuario];
   const expectativa = expectativaSegunReputacion(clubs, club);
 
@@ -108,6 +129,7 @@ export function nuevaPartida(indiceClubUsuario: number, seed = seedAleatoria()):
     fixture,
     jornadaActual: 1,
     mercadoExtranjero: [],
+    copa: copaVacia(),
     directorio: {
       expectativaPosicion: expectativa,
       confianza: 65,
@@ -120,6 +142,7 @@ export function nuevaPartida(indiceClubUsuario: number, seed = seedAleatoria()):
   };
 
   renovarMercadoExtranjero(estado, rng);
+  sortearCopa(estado, rng);
 
   crearMensaje(
     estado,
@@ -136,8 +159,8 @@ export function nuevaPartida(indiceClubUsuario: number, seed = seedAleatoria()):
  * van, y entran caras nuevas: el mercado no puede ser el mismo para siempre.
  */
 export function renovarMercadoExtranjero(estado: EstadoJuego, rng: Rng): void {
-  const anteriores = new Set(estado.mercadoExtranjero);
-  estado.jugadores = estado.jugadores.filter((j) => !(anteriores.has(j.id) && j.clubId === null));
+  // Todos los que quedaron sin club se van del juego: si no, la lista crece sola.
+  estado.jugadores = estado.jugadores.filter((j) => j.clubId !== null);
 
   const nuevos: Jugador[] = [];
   for (let i = 0; i < 40; i++) {
@@ -148,10 +171,64 @@ export function renovarMercadoExtranjero(estado: EstadoJuego, rng: Rng): void {
   estado.mercadoExtranjero = nuevos.map((j) => j.id);
 }
 
+/**
+ * Si el plantel del usuario queda por debajo del minimo, el club sale a firmar
+ * jugadores libres de urgencia. Es una red de seguridad, no un regalo: son los
+ * que estaban sueltos en el mercado.
+ */
+function completarPlantelDelUsuario(estado: EstadoJuego, rng: Rng): void {
+  const club = clubUsuario(estado);
+  const plantel = plantelDe(estado, club.id);
+  const faltan = Math.max(0, 16 - plantel.length);
+  if (faltan === 0) return;
+
+  const fichados: Jugador[] = [];
+  const libres = estado.jugadores
+    .filter((j) => j.clubId === null)
+    .sort((a, b) => b.media - a.media)
+    .slice(0, faltan);
+
+  for (const j of libres) {
+    j.clubId = club.id;
+    j.contratoSemanas = 80;
+    j.moral = 60;
+    fichados.push(j);
+  }
+
+  while (fichados.length < faltan) {
+    const puestos: PosicionCodigo[] = ['ARQ', 'DEF', 'MED', 'DEL'];
+    const nuevo = generarJugador(rng, {
+      pos: rng.pick(puestos),
+      nivel: 34 + club.reputacion * 0.3,
+      clubId: club.id,
+      edadMin: 18,
+      edadMax: 31,
+    });
+    estado.jugadores.push(nuevo);
+    fichados.push(nuevo);
+  }
+
+  estado.mercadoExtranjero = estado.mercadoExtranjero.filter((id) => !fichados.some((j) => j.id === id));
+
+  crearMensaje(
+    estado,
+    'plantel',
+    'El club firmo de urgencia',
+    `Quedabas con ${plantel.length} jugadores. Entraron ${fichados.map((j) => j.nombre).join(', ')}.`,
+  );
+}
+
 function expectativaSegunReputacion(clubs: Club[], club: Club): number {
-  const orden = [...clubs].sort((a, b) => b.reputacion - a.reputacion);
+  const mismos = clubs.filter((c) => c.division === club.division);
+  const orden = [...mismos].sort((a, b) => b.reputacion - a.reputacion);
   const puesto = orden.findIndex((c) => c.id === club.id) + 1;
-  return Math.max(1, Math.min(clubs.length, puesto + 1));
+  return Math.max(1, Math.min(mismos.length, puesto + 1));
+}
+
+/** Cuantos clubes hay en la division del usuario. */
+export function clubesDeLaDivision(estado: EstadoJuego): Club[] {
+  const propia = clubUsuario(estado).division;
+  return estado.clubs.filter((c) => c.division === propia);
 }
 
 export function clubPorId(estado: EstadoJuego, id: string): Club {
@@ -195,15 +272,35 @@ export interface ResumenJornada {
   ingresos: { concepto: string; monto: number }[];
   asistencia: number | null;
   temporadaTerminada: boolean;
+  /** Resultado de la llave de copa del usuario, si esta fecha hubo copa. */
+  copa: {
+    rival: string;
+    golesPropios: number;
+    golesRival: number;
+    paso: boolean;
+    premio: number;
+    porPenales: boolean;
+  } | null;
+}
+
+/** La llave de copa que le toca al usuario esta fecha, si es que hay. */
+export function partidoDeCopaDelUsuario(estado: EstadoJuego) {
+  if (!esJornadaDeCopa(estado.jornadaActual) || estado.copa.campeonId) return null;
+  return llaveDelUsuario(estado);
 }
 
 /**
  * Resuelve la jornada completa: el partido del usuario (con el resultado del
  * modo arcade si lo jugo) y todos los demas por simulacion.
  */
-export function resolverJornada(estado: EstadoJuego, resultadoUsuario: ResultadoArcade | null): ResumenJornada {
+export function resolverJornada(
+  estado: EstadoJuego,
+  resultadoUsuario: ResultadoArcade | null,
+  resultadoCopa: ResultadoCopaUsuario | null = null,
+): ResumenJornada {
   const rng = new Rng(estado.seed + estado.temporada * 1000 + estado.jornadaActual);
   const partidos = partidosDeJornada(estado.fixture, estado.jornadaActual);
+  const divisionUsuario = clubPorId(estado, estado.clubUsuarioId).division;
   const propio = partidoDelUsuario(estado);
 
   // Guardo quien ya venia suspendido: son los unicos que descuentan hoy.
@@ -231,7 +328,10 @@ export function resolverJornada(estado: EstadoJuego, resultadoUsuario: Resultado
     aplicarResultado(estado, partido, resultado, false);
   }
 
+  const copa = resolverCopaSiCorresponde(estado, rng, resultadoCopa);
+  completarPlantelDelUsuario(estado, rng);
   descontarSanciones(estado, veniaSuspendido);
+  avanzarContratos(estado);
   const ingresos = procesarFinanzasSemana(estado, propio, rng);
   const asistencia = ultimaAsistencia;
   procesarPlantel(estado, propio, rng);
@@ -245,7 +345,77 @@ export function resolverJornada(estado: EstadoJuego, resultadoUsuario: Resultado
     estado.semana += 1;
   }
 
-  return { partidos, partidoUsuario: propio, ingresos, asistencia, temporadaTerminada };
+  return {
+    partidos: partidos.filter((p) => p.division === divisionUsuario),
+    partidoUsuario: propio,
+    ingresos,
+    asistencia,
+    temporadaTerminada,
+    copa,
+  };
+}
+
+/** Juega la ronda de copa de esta fecha y devuelve como le fue al usuario. */
+function resolverCopaSiCorresponde(
+  estado: EstadoJuego,
+  rng: Rng,
+  resultadoUsuario: ResultadoCopaUsuario | null,
+): ResumenJornada['copa'] {
+  if (!esJornadaDeCopa(estado.jornadaActual) || estado.copa.campeonId) return null;
+
+  const propiaAntes = llaveDelUsuario(estado);
+  const resumen = resolverRondaDeCopa(estado, rng, resultadoUsuario, (llave, resultado) => {
+    for (const id of [...resultado.goleadoresLocal, ...resultado.goleadoresVisitante]) {
+      const j = jugadorPorId(estado, id);
+      if (j) j.golesTemporada += 1;
+    }
+    aplicarTarjetas(estado, resultado.amonestados, resultado.expulsados);
+    void llave;
+  });
+
+  if (resumen.campeon) {
+    const campeon = resumen.campeon;
+    crearMensaje(
+      estado,
+      'liga',
+      `${campeon.nombre} gano la copa`,
+      campeon.id === estado.clubUsuarioId ? '¡La copa es nuestra!' : 'Se termino la copa de esta temporada.',
+    );
+    if (campeon.id === estado.clubUsuarioId) {
+      registrar(estado, 'Premio por ganar la copa', premioDeRonda(NOMBRES_DE_RONDA.length - 1));
+      estado.directorio.confianza = Math.min(100, estado.directorio.confianza + 15);
+    }
+  }
+
+  if (!propiaAntes) return null;
+
+  const esLocal = propiaAntes.localId === estado.clubUsuarioId;
+  const golesPropios = (esLocal ? propiaAntes.golesLocal : propiaAntes.golesVisitante) ?? 0;
+  const golesRival = (esLocal ? propiaAntes.golesVisitante : propiaAntes.golesLocal) ?? 0;
+  const rival = clubPorId(estado, esLocal ? propiaAntes.visitanteId : propiaAntes.localId);
+
+  if (resumen.premio > 0) registrar(estado, `Premio de copa (${NOMBRES_DE_RONDA[resumen.rondaJugada]})`, resumen.premio);
+
+  const porPenales = golesPropios === golesRival;
+  const cierre = resumen.sigueVivo
+    ? `Pasa de ronda: ${NOMBRES_DE_RONDA[resumen.rondaJugada + 1] ?? 'Final'}.`
+    : 'Quedamos eliminados.';
+
+  crearMensaje(
+    estado,
+    'liga',
+    `Copa: ${golesPropios}-${golesRival} con ${rival.abrev}`,
+    porPenales ? `Se definio por penales. ${cierre}` : cierre,
+  );
+
+  return {
+    rival: rival.abrev,
+    golesPropios,
+    golesRival,
+    paso: resumen.sigueVivo,
+    premio: resumen.premio,
+    porPenales,
+  };
 }
 
 function aplicarResultado(
@@ -397,9 +567,12 @@ function procesarPlantel(estado: EstadoJuego, propio: Partido | null, rng: Rng):
       continue;
     }
 
+    const esDelUsuario = j.clubId === club.id;
+    const focoFisico = esDelUsuario ? club.entrenamiento.fisico / 33 : 1;
+
     if (jugaron.has(j.id)) {
-      j.forma = Math.max(35, j.forma - rng.int(6, 14));
-      const riesgo = 0.012 + (100 - j.attrs.fisico) / 4000;
+      j.forma = Math.max(35, j.forma - rng.int(6, 14) / Math.max(0.6, focoFisico));
+      const riesgo = (0.012 + (100 - j.attrs.fisico) / 4000) * (0.8 + focoFisico * 0.25);
       if (rng.chance(riesgo)) {
         j.lesionSemanas = rng.int(1, 6);
         if (j.clubId === club.id) {
@@ -412,10 +585,9 @@ function procesarPlantel(estado: EstadoJuego, propio: Partido | null, rng: Rng):
         }
       }
     } else {
-      j.forma = Math.min(100, j.forma + rng.int(4, 10));
+      j.forma = Math.min(100, j.forma + rng.int(4, 10) * focoFisico);
     }
 
-    if (j.contratoSemanas > 0) j.contratoSemanas -= 1;
   }
 
   evolucionarJugadores(estado, jugaron, rng);
@@ -473,7 +645,10 @@ function aplicarCambioDeAtributo(
   rng: Rng,
   clubUsuarioId: string,
 ): void {
-  const clave = atributoAfectado(rng, j.pos);
+  const clave =
+    j.clubId === clubUsuarioId && delta > 0
+      ? atributoSegunEntrenamiento(estado, rng, j)
+      : atributoAfectado(rng, j.pos);
   const anterior = j.media;
   j.attrs[clave] = Math.max(10, Math.min(99, j.attrs[clave] + delta));
   j.media = calcularMedia(j.pos, j.attrs);
@@ -489,8 +664,30 @@ function aplicarCambioDeAtributo(
   );
 }
 
+/**
+ * Con el entrenamiento inclinado hacia un bloque, la mejora cae mas seguido en
+ * los atributos de ese bloque. No lo garantiza: sigue pesando el puesto.
+ */
+function atributoSegunEntrenamiento(estado: EstadoJuego, rng: Rng, j: Jugador) {
+  const foco = clubUsuario(estado).entrenamiento;
+  const total = foco.fisico + foco.tecnica + foco.tactica || 1;
+
+  let tirada = rng.float(0, total);
+  for (const bloque of ['fisico', 'tecnica', 'tactica'] as const) {
+    tirada -= foco[bloque];
+    if (tirada > 0) continue;
+    const opciones = FOCOS[bloque];
+    // El arquero solo crece como arquero si el bloque se lo permite.
+    const validas = opciones.filter((clave) => (clave === 'arquero') === (j.pos === 'ARQ'));
+    if (validas.length > 0) return rng.pick(validas);
+    break;
+  }
+  return atributoAfectado(rng, j.pos);
+}
+
 function actualizarDirectorio(estado: EstadoJuego): void {
-  const tabla = calcularTabla(estado.clubs, estado.fixture);
+  const division = clubPorId(estado, estado.clubUsuarioId).division;
+  const tabla = calcularTabla(estado.clubs, estado.fixture, division);
   const posicion = posicionEnTabla(tabla, estado.clubUsuarioId);
   const objetivo = estado.directorio.expectativaPosicion;
   const desvio = objetivo - posicion;
@@ -510,6 +707,45 @@ function actualizarDirectorio(estado: EstadoJuego): void {
   }
 }
 
+/**
+ * Bajan los dos ultimos de primera y suben los dos primeros de segunda.
+ * Devuelve el texto para la bandeja, o null si algo salio mal.
+ */
+function aplicarAscensosYDescensos(estado: EstadoJuego): string | null {
+  const primera = calcularTabla(estado.clubs, estado.fixture, 1);
+  const segunda = calcularTabla(estado.clubs, estado.fixture, 2);
+  if (primera.length < 4 || segunda.length < 4) return null;
+
+  const descienden = primera.slice(-2).map((f) => clubPorId(estado, f.clubId));
+  const ascienden = segunda.slice(0, 2).map((f) => clubPorId(estado, f.clubId));
+
+  for (const club of descienden) {
+    club.division = 2;
+    club.reputacion = Math.max(18, club.reputacion - 8);
+  }
+  for (const club of ascienden) {
+    club.division = 1;
+    club.reputacion = Math.min(99, club.reputacion + 10);
+  }
+
+  const propio = clubUsuario(estado);
+  if (descienden.some((c) => c.id === propio.id)) {
+    crearMensaje(
+      estado,
+      'directorio',
+      'El club se fue al descenso',
+      'Se cobra menos de television y el objetivo ahora es volver a primera.',
+    );
+    estado.directorio.confianza = Math.max(0, estado.directorio.confianza - 10);
+  }
+  if (ascienden.some((c) => c.id === propio.id)) {
+    crearMensaje(estado, 'directorio', '¡Ascenso a primera!', 'El directorio esta feliz y sube el presupuesto.');
+    estado.directorio.confianza = Math.min(100, estado.directorio.confianza + 25);
+  }
+
+  return `Bajan ${descienden.map((c) => c.abrev).join(' y ')}. Suben ${ascienden.map((c) => c.abrev).join(' y ')}.`;
+}
+
 /** Cierra la temporada: balance, juveniles, envejecer plantel y fixture nuevo. */
 export interface ResumenTemporada {
   posicion: number;
@@ -522,7 +758,8 @@ export interface ResumenTemporada {
 
 export function cerrarTemporada(estado: EstadoJuego): ResumenTemporada {
   const rng = new Rng(estado.seed + estado.temporada * 7919);
-  const tabla = calcularTabla(estado.clubs, estado.fixture);
+  const division = clubPorId(estado, estado.clubUsuarioId).division;
+  const tabla = calcularTabla(estado.clubs, estado.fixture, division);
   const posicion = posicionEnTabla(tabla, estado.clubUsuarioId);
   const fila = tabla.find((f) => f.clubId === estado.clubUsuarioId);
   const puntos = fila?.pts ?? 0;
@@ -530,15 +767,17 @@ export function cerrarTemporada(estado: EstadoJuego): ResumenTemporada {
 
   estado.historial.push({ temporada: estado.temporada, posicion, pts: puntos });
 
-  const premio = Math.round((estado.clubs.length - posicion + 1) * 20_000_000);
+  const equipos = estado.clubs.filter((c) => c.division === division).length;
+  // En segunda se reparte bastante menos: subir es el premio.
+  const premio = Math.round((equipos - posicion + 1) * (division === 1 ? 20_000_000 : 6_000_000));
   registrar(estado, `Premio por terminar ${posicion}`, premio);
 
   estado.directorio.confianza = Math.max(
     0,
-    Math.min(100, estado.directorio.confianza + (cumplioObjetivo ? 18 : -22)),
+    Math.min(100, estado.directorio.confianza + (cumplioObjetivo ? 18 : -15)),
   );
   // Te echan si el directorio perdio toda la confianza o si terminaste ultimo.
-  const despedido = estado.directorio.confianza <= 0 || (!cumplioObjetivo && posicion === estado.clubs.length);
+  const despedido = estado.directorio.confianza <= 0 || (!cumplioObjetivo && posicion === equipos);
   estado.despedido = despedido;
 
   const juveniles = despedido ? [] : promoverJuveniles(estado, rng);
@@ -619,8 +858,9 @@ function envejecerPlantel(estado: EstadoJuego, rng: Rng): void {
     estado.jugadores = estado.jugadores.filter((j) => !retirados.includes(j.id));
   }
 
-  // Cada club de la IA rellena su plantel hasta 20 jugadores.
+  // Los clubes de la IA rellenan su plantel hasta 20 jugadores.
   for (const club of estado.clubs) {
+    if (club.id === estado.clubUsuarioId) continue;
     const plantel = estado.jugadores.filter((j) => j.clubId === club.id);
     const faltan = Math.max(0, 20 - plantel.length);
     for (let i = 0; i < faltan; i++) {
@@ -639,17 +879,26 @@ function envejecerPlantel(estado: EstadoJuego, rng: Rng): void {
 }
 
 function reiniciarTemporada(estado: EstadoJuego, rng: Rng, posicionFinal: number): void {
+  const movimientos = aplicarAscensosYDescensos(estado);
+
   estado.temporada += 1;
   estado.jornadaActual = 1;
   estado.semana += 1;
-  estado.fixture = generarFixture(estado.clubs.map((c) => c.id), rng);
+  estado.fixture = [
+    ...generarFixture(estado.clubs.filter((c) => c.division === 1).map((c) => c.id), rng, 1),
+    ...generarFixture(estado.clubs.filter((c) => c.division === 2).map((c) => c.id), rng, 2),
+  ];
 
   const club = clubUsuario(estado);
   // La reputacion sigue a los resultados: terminar arriba te acerca a los grandes.
-  const objetivoRep = 100 - (posicionFinal - 1) * (60 / estado.clubs.length);
+  const objetivoRep = (club.division === 1 ? 100 : 55) - (posicionFinal - 1) * 3.5;
   club.reputacion = Math.max(20, Math.min(99, Math.round(club.reputacion * 0.8 + objetivoRep * 0.2)));
 
-  estado.directorio.expectativaPosicion = Math.max(1, Math.min(estado.clubs.length, posicionFinal <= 3 ? posicionFinal : posicionFinal - 1));
+  const equipos = estado.clubs.filter((c) => c.division === club.division).length;
+  estado.directorio.expectativaPosicion = Math.max(
+    1,
+    Math.min(equipos, posicionFinal <= 3 ? posicionFinal : posicionFinal - 1),
+  );
   estado.directorio.presupuestoFichajes = Math.round(Math.max(0, club.dinero) * 0.4);
 
   for (const otro of estado.clubs) {
@@ -658,6 +907,9 @@ function reiniciarTemporada(estado: EstadoJuego, rng: Rng, posicionFinal: number
   }
 
   renovarMercadoExtranjero(estado, rng);
+  sortearCopa(estado, rng);
+
+  if (movimientos) crearMensaje(estado, 'liga', 'Ascensos y descensos', movimientos);
 
   crearMensaje(
     estado,

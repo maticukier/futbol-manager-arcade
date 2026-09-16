@@ -52,9 +52,9 @@ export function masaSalarial(clubId: string, jugadores: Jugador[]): number {
   return jugadores.filter((j) => j.clubId === clubId).reduce((total, j) => total + j.salario, 0);
 }
 
-/** Ingreso semanal fijo por derechos de TV, segun reputacion. */
+/** Ingreso semanal fijo por derechos de TV. En segunda se cobra mucho menos. */
 export function ingresoTv(club: Club): number {
-  return Math.round(club.reputacion * 260_000);
+  return Math.round(club.reputacion * 260_000 * (club.division === 1 ? 1 : 0.4));
 }
 
 /** Gasto fijo semanal: mantener el estadio y sostener las divisiones inferiores. */

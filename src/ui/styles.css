@@ -951,3 +951,11 @@ nav .icono {
   letter-spacing: 3px;
   color: #cfe0f5;
 }
+
+tr.zona-descenso td:first-child {
+  box-shadow: inset 3px 0 0 var(--peligro);
+}
+
+tr.zona-ascenso td:first-child {
+  box-shadow: inset 3px 0 0 var(--acento);
+}

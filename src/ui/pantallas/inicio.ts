@@ -1,5 +1,5 @@
 import type { App } from '../app';
-import { CLUBES_LIGA } from '@/sim/nombres';
+import { CLUBES_LIGA, CLUBES_SEGUNDA } from '@/sim/nombres';
 import { nuevaPartida } from '@/sim/juego';
 import { borrar, hayPartidaGuardada } from '@/sim/guardado';
 import { esc, numero } from '../formato';
@@ -32,14 +32,19 @@ export function render(app: App): string {
 }
 
 function renderEleccion(): string {
-  const tarjetas = CLUBES_LIGA.map((club, i) => {
+  const todos = [
+    ...CLUBES_LIGA.map((c) => ({ ...c, division: 1 })),
+    ...CLUBES_SEGUNDA.map((c) => ({ ...c, division: 2 })),
+  ];
+
+  const tarjetas = todos.map((club, i) => {
     const dificultad = club.reputacion >= 70 ? 'Facil' : club.reputacion >= 50 ? 'Normal' : 'Dificil';
     return `
       <button class="jugador" data-club="${i}">
         <span class="escudo" style="background:${esc(club.colorPrimario)};color:${esc(club.colorSecundario)}">${esc(club.abrev)}</span>
         <span>
           <span class="jugador__nombre">${esc(club.nombre)}</span><br />
-          <span class="jugador__datos">${esc(club.estadio)} · ${numero(club.capacidad)} lugares · ${dificultad}</span>
+          <span class="jugador__datos">${club.division === 1 ? 'Primera' : 'Segunda'} · ${numero(club.capacidad)} lugares · ${dificultad}</span>
         </span>
         <span class="media">${club.reputacion}</span>
       </button>
@@ -48,7 +53,10 @@ function renderEleccion(): string {
 
   return `
     <h1>Elegi tu club</h1>
-    <p class="suave">Cuanto mas chico el club, mas dificil la carrera: menos plata, peor plantel y un directorio mas impaciente.</p>
+    <p class="suave">
+      Cuanto mas chico el club, mas dificil la carrera: menos plata, peor plantel y un
+      directorio mas impaciente. En segunda el objetivo es ascender.
+    </p>
     <div class="elegir-club">${tarjetas}</div>
     <button class="boton boton--fantasma" data-accion="volver">Volver</button>
   `;

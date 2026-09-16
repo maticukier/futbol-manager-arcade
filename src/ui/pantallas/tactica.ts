@@ -41,6 +41,18 @@ export function render(app: App): string {
     </div>
 
     <div class="tarjeta">
+      <p class="tarjeta__titulo">Entrenamiento de la semana</p>
+      ${deslizadorEntrenamiento('fisico', 'Fisico', club.entrenamiento.fisico)}
+      ${deslizadorEntrenamiento('tecnica', 'Tecnica', club.entrenamiento.tecnica)}
+      ${deslizadorEntrenamiento('tactica', 'Tactica', club.entrenamiento.tactica)}
+      <p class="suave" style="font-size:12.5px;margin-top:6px">
+        Los tres se reparten el foco. Mas fisico acelera la recuperacion y empuja
+        ritmo y aguante, pero aumenta el riesgo de lesion; tecnica trabaja regate,
+        pase y tiro; tactica, el quite y los arqueros.
+      </p>
+    </div>
+
+    <div class="tarjeta">
       <p class="tarjeta__titulo">Fuerza del once</p>
       ${barra('Ataque', fuerza.ataque)}
       ${barra('Medio', fuerza.medio)}
@@ -61,6 +73,15 @@ function deslizador(clave: string, etiqueta: string, valor: number, izquierda: s
       <span style="display:flex;justify-content:space-between;font-size:11px">
         <span>${izquierda}</span><span>${derecha}</span>
       </span>
+    </label>
+  `;
+}
+
+function deslizadorEntrenamiento(clave: string, etiqueta: string, valor: number): string {
+  return `
+    <label class="campo">
+      ${etiqueta} <strong>${valor}%</strong>
+      <input type="range" min="0" max="100" step="5" value="${valor}" data-entrenamiento="${clave}" />
     </label>
   `;
 }
@@ -119,6 +140,20 @@ export function montar(app: App, raiz: HTMLElement): void {
     club.titulares = [];
     app.guardarPartida();
     app.refrescar();
+  });
+
+  raiz.querySelectorAll<HTMLInputElement>('[data-entrenamiento]').forEach((nodo) => {
+    nodo.addEventListener('change', () => {
+      const clave = nodo.dataset.entrenamiento as 'fisico' | 'tecnica' | 'tactica';
+      club.entrenamiento[clave] = Number(nodo.value);
+      // Reparto lo que sobra entre los otros dos para que siempre sumen 100.
+      const otros = (['fisico', 'tecnica', 'tactica'] as const).filter((c) => c !== clave);
+      const resto = Math.max(0, 100 - club.entrenamiento[clave]);
+      const sumaOtros = otros.reduce((s, c) => s + club.entrenamiento[c], 0) || 1;
+      for (const c of otros) club.entrenamiento[c] = Math.round((club.entrenamiento[c] / sumaOtros) * resto);
+      app.guardarPartida();
+      app.refrescar();
+    });
   });
 
   raiz.querySelectorAll<HTMLInputElement>('[data-tactica]').forEach((nodo) => {

@@ -1,4 +1,4 @@
-import type { Formacion, PosicionCodigo, Tacticas } from './types';
+import type { Atributos, Entrenamiento, Formacion, PosicionCodigo, Tacticas } from './types';
 
 /**
  * Posicion base de cada puesto en la cancha, normalizada.
@@ -109,3 +109,16 @@ export function ajustePorPuesto(natural: PosicionCodigo, usado: PosicionCodigo):
   const distancia = Math.abs(orden.indexOf(natural) - orden.indexOf(usado));
   return distancia === 1 ? 0.9 : 0.78;
 }
+
+
+export const ENTRENAMIENTO_POR_DEFECTO: Entrenamiento = { fisico: 34, tecnica: 33, tactica: 33 };
+
+/**
+ * A que atributos empuja cada foco del entrenamiento. La suma de pesos de
+ * cada bloque es lo que define cuanto tira para ese lado.
+ */
+export const FOCOS: Record<keyof Entrenamiento, (keyof Atributos)[]> = {
+  fisico: ['ritmo', 'fisico'],
+  tecnica: ['regate', 'pase', 'tiro'],
+  tactica: ['quite', 'arquero'],
+};

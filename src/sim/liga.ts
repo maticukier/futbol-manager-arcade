@@ -1,4 +1,4 @@
-import type { Club, FilaTabla, Jugador, Partido } from './types';
+import type { Club, Division, FilaTabla, Jugador, Partido } from './types';
 import { Rng } from './rng';
 import { ajustePorPuesto, FORMACIONES } from './tacticas';
 
@@ -6,7 +6,7 @@ import { ajustePorPuesto, FORMACIONES } from './tacticas';
  * Fixture ida y vuelta por el metodo del circulo.
  * Con 12 equipos salen 22 jornadas.
  */
-export function generarFixture(clubIds: string[], rng: Rng): Partido[] {
+export function generarFixture(clubIds: string[], rng: Rng, division: Division = 1): Partido[] {
   const equipos = rng.shuffle([...clubIds]);
   if (equipos.length % 2 !== 0) equipos.push('LIBRE');
 
@@ -24,8 +24,8 @@ export function generarFixture(clubIds: string[], rng: Rng): Partido[] {
       // Alterno la localia por ronda para que no juegue siempre de local el mismo.
       const local = ronda % 2 === 0 ? a : b;
       const visitante = ronda % 2 === 0 ? b : a;
-      partidos.push(crearPartido(ronda + 1, local, visitante));
-      partidos.push(crearPartido(ronda + 1 + rondas, visitante, local));
+      partidos.push(crearPartido(division, ronda + 1, local, visitante));
+      partidos.push(crearPartido(division, ronda + 1 + rondas, visitante, local));
     }
     // Roto todos menos el primero.
     orden = [orden[0], orden[n - 1], ...orden.slice(1, n - 1)];
@@ -35,10 +35,11 @@ export function generarFixture(clubIds: string[], rng: Rng): Partido[] {
 }
 
 let contador = 0;
-function crearPartido(jornada: number, localId: string, visitanteId: string): Partido {
+function crearPartido(division: Division, jornada: number, localId: string, visitanteId: string): Partido {
   contador += 1;
   return {
     id: `p${contador.toString(36)}`,
+    division,
     jornada,
     localId,
     visitanteId,
@@ -53,8 +54,8 @@ export function totalJornadas(fixture: Partido[]): number {
   return fixture.reduce((max, p) => Math.max(max, p.jornada), 0);
 }
 
-export function partidosDeJornada(fixture: Partido[], jornada: number): Partido[] {
-  return fixture.filter((p) => p.jornada === jornada);
+export function partidosDeJornada(fixture: Partido[], jornada: number, division?: Division): Partido[] {
+  return fixture.filter((p) => p.jornada === jornada && (division === undefined || p.division === division));
 }
 
 export function proximoPartidoDe(fixture: Partido[], clubId: string, desdeJornada: number): Partido | null {
@@ -65,13 +66,15 @@ export function proximoPartidoDe(fixture: Partido[], clubId: string, desdeJornad
   );
 }
 
-export function calcularTabla(clubs: Club[], fixture: Partido[]): FilaTabla[] {
+export function calcularTabla(clubs: Club[], fixture: Partido[], division: Division = 1): FilaTabla[] {
   const filas = new Map<string, FilaTabla>();
   for (const c of clubs) {
+    if (c.division !== division) continue;
     filas.set(c.id, { clubId: c.id, pj: 0, g: 0, e: 0, p: 0, gf: 0, gc: 0, dif: 0, pts: 0 });
   }
 
   for (const p of fixture) {
+    if (p.division !== division) continue;
     if (!p.jugado || p.golesLocal === null || p.golesVisitante === null) continue;
     const local = filas.get(p.localId);
     const visita = filas.get(p.visitanteId);
