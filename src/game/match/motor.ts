@@ -125,6 +125,10 @@ export class MotorPartido {
   /** Adonde va el companero que se ofrece, y cuanto falta para recalcularlo. */
   private apoyos: { punto: { x: number; z: number }; id: string }[] = [];
   private esperaApoyo = 0;
+  /** A quien va dirigido el pase que esta viajando. */
+  private receptorId: string | null = null;
+  /** Saque de lateral o de corner en curso: quien lo ejecuta y cuanto le falta. */
+  private saque: { id: string; tiempo: number; corner: boolean } | null = null;
 
   constructor(config: ConfiguracionPartido) {
     this.config = config;
@@ -230,6 +234,7 @@ export class MotorPartido {
     this.elegirControlado();
     this.moverJugadores(dt, entrada, false);
     this.separarCuerpos();
+    this.avanzarSaque(dt);
     this.aplicarAcciones(entrada);
     this.moverPelota(dt);
     this.revisarArqueroConPelota(dt);
@@ -339,6 +344,14 @@ export class MotorPartido {
       this.controladoId = dueno.id;
       return;
     }
+    // Si el pase va dirigido a uno mio, el usuario pasa a manejarlo a el: es
+    // lo que espera cualquiera que acaba de dar un pase.
+    const receptor = this.porId(this.receptorId);
+    if (receptor && receptor.bando === 'usuario' && this.pelota.duenoId === null) {
+      this.controladoId = receptor.id;
+      return;
+    }
+
     const actual = this.porId(this.controladoId);
     // Mientras el jugador marcado siga siendo razonable, no se lo cambio al
     // usuario de prepo: el cambio automatico constante desorienta.
@@ -388,9 +401,25 @@ export class MotorPartido {
         continue;
       }
 
+      // El que va a sacar el lateral o el corner se queda quieto en su lugar.
+      if (this.saque && this.saque.id === j.id) {
+        j.vx = 0;
+        j.vz = 0;
+        continue;
+      }
+
+      // El pase va dirigido a alguien: ese alguien va a buscarlo. Sin esto el
+      // usuario pasa y su companero se queda parado mirando la pelota.
+      if (!detenido && j.id === this.receptorId && this.pelota.duenoId === null) {
+        const cruce = this.puntoDeCruce(j);
+        this.irHacia(j, cruce.x, cruce.z, dt, 1.1);
+        continue;
+      }
+
       if (perseguidores.has(j.id)) {
         if (dueno && dueno.bando !== j.bando && this.iaSeBarre(j, dueno, dt)) continue;
-        this.irHacia(j, this.pelota.x, this.pelota.z, dt, 1);
+        const cruce = this.puntoDeCruce(j);
+        this.irHacia(j, cruce.x, cruce.z, dt, 1);
         continue;
       }
 
@@ -735,6 +764,32 @@ export class MotorPartido {
     // del que lo persigue, uno malo lo lleva encima. Antes todos conducian igual.
     const conduccion = 0.92 + (j.attrs.regate / 100) * 0.18;
     this.irHacia(j, arco, limitar(objetivoZ, -ANCHO / 2 + 3, ANCHO / 2 - 3), dt, conduccion);
+  }
+
+  /**
+   * Adonde hay que ir a buscar la pelota, no donde esta.
+   *
+   * Se prueban tiempos hacia adelante hasta encontrar el primero en el que el
+   * jugador llega. Correr atras de donde esta la pelota es correrla de atras
+   * toda la jugada.
+   */
+  private puntoDeCruce(j: JugadorPartido): { x: number; z: number } {
+    const velocidad = this.velocidadDe(j);
+    let punto = { x: this.pelota.x, z: this.pelota.z };
+
+    for (let t = 0; t <= 2.4; t += 0.12) {
+      // La pelota frena rodando: la posicion futura no es una recta.
+      const freno = Math.exp(-0.5 * t);
+      punto = {
+        x: this.pelota.x + this.pelota.vx * t * freno,
+        z: this.pelota.z + this.pelota.vz * t * freno,
+      };
+      if (distancia2(j.x, j.z, punto.x, punto.z) <= velocidad * t) break;
+    }
+    return {
+      x: limitar(punto.x, -LARGO / 2 - 1, LARGO / 2 + 1),
+      z: limitar(punto.z, -ANCHO / 2 - 1, ANCHO / 2 + 1),
+    };
   }
 
   private rivalMasCercano(j: JugadorPartido): JugadorPartido | null {
@@ -1288,6 +1343,7 @@ export class MotorPartido {
     const error = ((100 - j.attrs.pase) / 100) * (bombeado ? 3.2 : 2) * (Math.random() - 0.5) * 2;
 
     this.soltarPelota(j);
+    this.receptorId = mejor.id;
     j.estado = 'pateando';
     j.patada = 0.25;
 
@@ -1439,7 +1495,7 @@ export class MotorPartido {
   private resolverDisputa(dt: number): void {
     const dueno = this.porId(this.pelota.duenoId);
     // Al arquero con la pelota en la mano no se le entra: seria falta.
-    if (!dueno || dueno.esArquero) return;
+    if (!dueno || dueno.esArquero || this.saque) return;
 
     for (const rival of this.jugadores) {
       if (rival.bando === dueno.bando || rival.bloqueo > 0 || rival.estado !== 'normal' || rival.expulsado) continue;
@@ -1467,7 +1523,7 @@ export class MotorPartido {
     const separacion = RADIO_JUGADOR + RADIO_PELOTA + 0.25;
     this.pelota.x = limitar(dueno.x + Math.cos(dueno.rumbo) * separacion, -LARGO / 2, LARGO / 2);
     this.pelota.z = limitar(dueno.z + Math.sin(dueno.rumbo) * separacion, -ANCHO / 2, ANCHO / 2);
-    this.pelota.y = RADIO_PELOTA;
+    this.pelota.y = this.saque && !this.saque.corner ? 1.85 : RADIO_PELOTA;
     this.detenerPelota();
   }
 
@@ -1634,6 +1690,7 @@ export class MotorPartido {
     this.detenerPelota();
     this.pelota.duenoId = mejor.id;
     this.pelota.ultimoToqueId = mejor.id;
+    this.receptorId = null;
     if (mejor.esArquero) this.tiempoArqueroConPelota = 0;
   }
 
@@ -1672,10 +1729,12 @@ export class MotorPartido {
     if (Math.abs(z) > ANCHO / 2) {
       const ultimo = this.porId(this.pelota.ultimoToqueId);
       const saca: Bando = ultimo?.bando === 'usuario' ? 'rival' : 'usuario';
-      const zLinea = Math.sign(z) * (ANCHO / 2 - 0.3);
-      this.pelota.x = limitar(x, -LARGO / 2 + 2, LARGO / 2 - 2);
-      this.pelota.z = zLinea;
-      this.darLaPelotaA(saca, this.pelota.x, zLinea, null);
+      const lado = Math.sign(z) || 1;
+      const donde = limitar(x, -LARGO / 2 + 2, LARGO / 2 - 2);
+      // El que saca se para afuera de la linea, con la pelota en la mano: un
+      // lateral no es dejar la pelota en el piso para que alguien salga
+      // corriendo con ella.
+      this.prepararSaqueDeBanda(saca, donde, lado * (ANCHO / 2 + 0.8), false);
       this.anunciar('LATERAL', `Saca ${this.equipoDe(saca).abrev}`, 1.1, false);
       return;
     }
@@ -1683,13 +1742,16 @@ export class MotorPartido {
     if (Math.abs(x) > LARGO / 2) {
       const defiende: Bando = x > 0 ? 'rival' : 'usuario';
       const ultimo = this.porId(this.pelota.ultimoToqueId);
-      const fueCorner = ultimo !== null && ultimo.bando !== defiende;
+      // Corner es cuando la manda afuera el que defiende. Si la tira afuera el
+      // que ataca, es saque de arco. Estaba al reves: cada remate desviado
+      // terminaba en corner.
+      const fueCorner = ultimo !== null && ultimo.bando === defiende;
 
       if (fueCorner) {
-        const esquinaX = Math.sign(x) * (LARGO / 2 - 0.6);
-        const esquinaZ = Math.sign(z || 1) * (ANCHO / 2 - 0.6);
+        const esquinaX = Math.sign(x) * (LARGO / 2 - 0.5);
+        const esquinaZ = Math.sign(z || 1) * (ANCHO / 2 - 0.5);
         const ataca: Bando = defiende === 'usuario' ? 'rival' : 'usuario';
-        this.darLaPelotaA(ataca, esquinaX, esquinaZ, null);
+        this.prepararSaqueDeBanda(ataca, esquinaX, esquinaZ, true);
         this.anunciar('CORNER', `Para ${this.equipoDe(ataca).abrev}`, 1.2, false);
       } else {
         const arquero = this.jugadores.find((j) => j.bando === defiende && j.esArquero);
@@ -1705,6 +1767,67 @@ export class MotorPartido {
    * Nadie se teletransporta al medio del juego: el que saca camina hasta ahi
    * durante la pausa y recien despues arranca la jugada.
    */
+  /**
+   * Prepara un lateral o un corner: pone al ejecutor en su lugar con la pelota
+   * y le da un momento antes de ponerla en juego. Nadie se la puede sacar
+   * mientras tanto, igual que en la cancha.
+   */
+  private prepararSaqueDeBanda(bando: Bando, x: number, z: number, corner: boolean): void {
+    const candidatos = this.jugadores
+      .filter((j) => j.bando === bando && !j.esArquero && !j.expulsado)
+      .sort((a, b) => distancia2(a.x, a.z, x, z) - distancia2(b.x, b.z, x, z));
+    const ejecutor = candidatos[0];
+    if (!ejecutor) return;
+
+    ejecutor.x = x;
+    ejecutor.z = z;
+    ejecutor.vx = 0;
+    ejecutor.vz = 0;
+    ejecutor.estado = 'normal';
+    ejecutor.temporizador = 0;
+    ejecutor.bloqueo = 0;
+    // Mira hacia adentro de la cancha.
+    ejecutor.rumbo = corner
+      ? Math.atan2(-z, this.arcoRivalDe(bando) - x)
+      : Math.atan2(-Math.sign(z || 1), bando === 'usuario' ? 1 : -1);
+
+    this.pelota.duenoId = ejecutor.id;
+    this.pelota.ultimoToqueId = ejecutor.id;
+    this.receptorId = null;
+    this.detenerPelota();
+    this.pelota.bloqueoPosesion = 0;
+    this.saque = { id: ejecutor.id, tiempo: corner ? 1.1 : 0.8, corner };
+    if (bando === 'usuario') this.controladoId = ejecutor.id;
+  }
+
+  /** Corre el reloj del saque y lo pone en juego cuando se termina. */
+  private avanzarSaque(dt: number): void {
+    if (!this.saque) return;
+    const ejecutor = this.porId(this.saque.id);
+    if (!ejecutor || this.pelota.duenoId !== ejecutor.id) {
+      this.saque = null;
+      return;
+    }
+
+    // Un lateral se saca con las manos, por arriba.
+    if (!this.saque.corner) this.pelota.y = 1.85;
+
+    this.saque.tiempo -= dt;
+    if (this.saque.tiempo > 0) return;
+
+    const corner = this.saque.corner;
+    this.saque = null;
+    const direccion = ejecutor.bando === 'usuario' ? 1 : -1;
+
+    if (corner) {
+      // El corner va al area, no al companero mejor parado en el medio campo.
+      const arco = this.arcoRivalDe(ejecutor.bando);
+      this.pasar(ejecutor, arco - ejecutor.x, -ejecutor.z, true);
+      return;
+    }
+    this.pasar(ejecutor, direccion, -Math.sign(ejecutor.z || 1), true);
+  }
+
   private darLaPelotaA(bando: Bando, x: number, z: number, jugadorId: string | null): void {
     this.pelota.x = x;
     this.pelota.z = z;
@@ -1731,6 +1854,7 @@ export class MotorPartido {
 
     this.pelota.duenoId = ejecutor.id;
     this.pelota.ultimoToqueId = ejecutor.id;
+    this.receptorId = null;
     if (bando === 'usuario') this.controladoId = ejecutor.id;
   }
 
@@ -1757,8 +1881,18 @@ export class MotorPartido {
     for (const j of this.jugadores) {
       if (j.expulsado) continue;
       const punto = this.aMundo(j.bando, j.baseAncho, j.baseLargo);
-      j.x = punto.x;
+      // La formacion reparte a los once sobre la cancha entera, y eso en el
+      // saque del medio deja a los delanteros de los dos equipos dentro del
+      // area rival. Aca se los comprime a su propio campo.
+      const direccion = j.bando === 'usuario' ? 1 : -1;
+      j.x = direccion * ((j.baseLargo - 1) * (LARGO / 2) - 1.2);
       j.z = punto.z;
+      // El que no saca espera afuera del circulo central.
+      if (j.bando !== bando) {
+        const fuera = Math.sqrt(Math.max(0, 9.6 * 9.6 - j.z * j.z));
+        j.x = direccion > 0 ? Math.min(j.x, -fuera) : Math.max(j.x, fuera);
+      }
+      j.x = limitar(j.x, -LARGO / 2 + 2, LARGO / 2 - 2);
       j.vx = 0;
       j.vz = 0;
       j.estado = 'normal';

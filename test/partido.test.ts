@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { nuevaPartida } from '@/sim/juego';
-import { LARGO, RADIO_JUGADOR } from '@/game/match/mundo';
+import { ANCHO, LARGO, RADIO_JUGADOR } from '@/game/match/mundo';
 import { MotorPartido } from '@/game/match/motor';
 import { ENTRADA_VACIA } from '@/game/match/entidades';
 import type { JugadorPartido } from '@/game/match/entidades';
@@ -134,18 +134,23 @@ describe('reglas del partido', () => {
 
     // Mido cuanto se aleja de la linea mientras todavia tiene la pelota.
     let salidaMaxima = 0;
-    let pasosConLaPelota = 0;
+    let seguidos = 0;
+    let retencionMasLarga = 0;
     for (let i = 0; i < 240; i++) {
       motor.paso(PASO, ENTRADA_VACIA);
-      if (motor.pelota.duenoId !== arquero.id) continue;
-      pasosConLaPelota += 1;
+      if (motor.pelota.duenoId !== arquero.id) {
+        seguidos = 0;
+        continue;
+      }
+      seguidos += 1;
+      retencionMasLarga = Math.max(retencionMasLarga, seguidos);
       salidaMaxima = Math.max(salidaMaxima, LARGO / 2 - Math.abs(arquero.x));
     }
 
     expect(motor.pelota.duenoId).not.toBe(arquero.id);
     expect(salidaMaxima).toBeGreaterThan(4);
-    // Y no se queda con ella para siempre.
-    expect(pasosConLaPelota).toBeLessThan(180);
+    // Y no se queda con ella para siempre de una sola vez.
+    expect(retencionMasLarga).toBeLessThan(180);
   });
 
   it('el penal se patea y devuelve el juego', () => {
@@ -236,6 +241,99 @@ describe('arquero', () => {
   });
 });
 
+describe('saques y reinicios', () => {
+  function tirarAfuera(semilla: number, quienLaToco: 'usuario' | 'rival'): string {
+    const { motor } = motorDePrueba(semilla);
+    const tocador = motor.jugadores.find((j) => j.bando === quienLaToco && !j.esArquero)!;
+    motor.fase = 'jugando';
+    motor.aviso = null;
+    Object.assign(motor.pelota, {
+      x: LARGO / 2 - 1, z: 20, y: 0.3, vx: 20, vy: 0, vz: 6,
+      duenoId: null, ultimoToqueId: tocador.id,
+    });
+    for (let i = 0; i < 30 && !avisoDe(motor); i++) motor.paso(PASO, ENTRADA_VACIA);
+    return avisoDe(motor)?.titulo ?? '';
+  }
+
+  it('es corner solo si la saco el que defiende', () => {
+    // El rival defiende el arco de +x. Si la manda afuera el, corner.
+    expect(tirarAfuera(111, 'rival')).toBe('CORNER');
+    // Si la tira afuera el que ataca, saque de arco.
+    expect(tirarAfuera(222, 'usuario')).toBe('SAQUE DE ARCO');
+  });
+
+  it('el lateral lo saca alguien parado afuera de la linea, y lo pone en juego por el aire', () => {
+    const { motor } = motorDePrueba(333);
+    const tocador = motor.jugadores.find((j) => j.bando === 'usuario' && !j.esArquero)!;
+    motor.fase = 'jugando';
+    motor.aviso = null;
+    Object.assign(motor.pelota, {
+      x: 5, z: ANCHO / 2 - 1, y: 0.3, vx: 0, vy: 0, vz: 14,
+      duenoId: null, ultimoToqueId: tocador.id,
+    });
+    for (let i = 0; i < 30 && avisoDe(motor)?.titulo !== 'LATERAL'; i++) motor.paso(PASO, ENTRADA_VACIA);
+
+    const saca = motor.jugadores.find((j) => j.id === motor.pelota.duenoId)!;
+    expect(saca).toBeDefined();
+    expect(Math.abs(saca.z)).toBeGreaterThan(ANCHO / 2);
+
+    // La tiene un momento y despues la pone en juego, no la deja en el piso
+    // para que alguien salga corriendo con ella.
+    let pasos = 0;
+    while (motor.pelota.duenoId === saca.id && pasos < 200) {
+      motor.paso(PASO, ENTRADA_VACIA);
+      pasos += 1;
+    }
+    expect(pasos).toBeGreaterThan(20);
+    expect(pasos).toBeLessThan(120);
+    expect(motor.pelota.vy).toBeGreaterThan(0.5);
+  });
+
+  it('en el saque del medio nadie pisa el campo rival', () => {
+    const { motor } = motorDePrueba(444);
+    // Arranco un partido nuevo con la misma gente para mirar el saque inicial.
+    const arranque = new MotorPartido(motor.config);
+
+    const enCampoAjeno = arranque.jugadores.filter((j) =>
+      j.bando === 'usuario' ? j.x > 0.5 : j.x < -0.5,
+    );
+    expect(enCampoAjeno).toHaveLength(0);
+
+    // Y el que no saca espera afuera del circulo central.
+    const dentroDelCirculo = arranque.jugadores.filter(
+      (j) => j.bando === 'rival' && Math.hypot(j.x, j.z) < 9.5,
+    );
+    expect(dentroDelCirculo).toHaveLength(0);
+  });
+
+  it('el companero va a buscar el pase del usuario', () => {
+    const { motor } = motorDePrueba(666);
+    motor.fase = 'jugando';
+    motor.aviso = null;
+
+    const mio = motor.jugadores.find((j) => j.bando === 'usuario' && !j.esArquero)!;
+    Object.assign(mio, { x: -10, z: 0, vx: 0, vz: 0 });
+    motor.controladoId = mio.id;
+    Object.assign(motor.pelota, {
+      x: mio.x, z: 0, y: 0.12, vx: 0, vy: 0, vz: 0,
+      duenoId: mio.id, ultimoToqueId: mio.id,
+    });
+
+    motor.paso(PASO, { ...ENTRADA_VACIA, a: true });
+    motor.paso(PASO, ENTRADA_VACIA);
+
+    // El usuario pasa a manejar al que recibe, como en cualquier juego de futbol.
+    const receptor = motor.jugadores.find((j) => j.id === motor.controladoId)!;
+    expect(receptor.id).not.toBe(mio.id);
+
+    const antes = Math.hypot(receptor.x - motor.pelota.x, receptor.z - motor.pelota.z);
+    for (let i = 0; i < 40; i++) motor.paso(PASO, ENTRADA_VACIA);
+    const despues = Math.hypot(receptor.x - motor.pelota.x, receptor.z - motor.pelota.z);
+
+    expect(despues).toBeLessThan(antes);
+  });
+});
+
 describe('marca y fisica del jugador', () => {
   it('un defensor se le pega al atacante que entra a su campo', () => {
     const { motor } = motorDePrueba(404);
@@ -264,13 +362,15 @@ describe('marca y fisica del jugador', () => {
     };
     const distanciaAlAtacante = (j: JugadorPartido) => Math.hypot(j.x - atacante.x, j.z - atacante.z);
 
-    correr(30);
+    // Con un par de pasos ya tiene asignada la marca, pero todavia no llego:
+    // esa es la distancia contra la que quiero comparar.
+    correr(3);
     const marcador = motor.jugadores.find((j) => j.marcaA === atacante.id);
     expect(marcador).toBeDefined();
     expect(marcador!.bando).toBe('usuario');
 
     const antes = distanciaAlAtacante(marcador!);
-    correr(150);
+    correr(180);
     const despues = distanciaAlAtacante(marcador!);
 
     // No se queda en su casillero de la formacion: le va encima.

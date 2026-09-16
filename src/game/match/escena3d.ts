@@ -481,7 +481,10 @@ export class Escena3D {
 
     // Le adelanto un poco la camara a la pelota: en las contras se agradece.
     const objetivoX = limitar((p.x + p.vx * 0.35) * 0.85, -(LARGO / 2 - 10), LARGO / 2 - 10);
-    const objetivoZ = p.z * 0.45;
+    // Sigo mas a la pelota de lado a lado: con poco seguimiento, cuando la
+    // jugada se va a la banda de abajo la linea se sale del cuadro. Mas que
+    // esto tampoco, porque la camara se mete adentro de la tribuna.
+    const objetivoZ = p.z * 0.62;
 
     const deseada = new THREE.Vector3(
       objetivoX,
@@ -498,7 +501,9 @@ export class Escena3D {
       this.camara.position.y += (Math.random() - 0.5) * this.sacudida;
     }
 
-    this.camara.lookAt(objetivoX, 1.4, objetivoZ - 2);
+    // Mirando un poco hacia este lado la camara baja la vista y entra la banda
+    // de abajo. Mirando para el otro lado se comia justo esa linea.
+    this.camara.lookAt(objetivoX, 1.1, objetivoZ + 3);
   }
 
   /** Distancia que hace falta para ver el ancho de cancha que buscamos. */

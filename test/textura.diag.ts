@@ -6,7 +6,6 @@ import { MotorPartido } from '@/game/match/motor';
 import { ENTRADA_VACIA } from '@/game/match/entidades';
 
 const PASO = 1 / 60;
-(globalThis as any).__tiros = [];
 const restaurar = fijarAzar(4242);
 const estado = nuevaPartida(4, 31337);
 const primera = estado.clubs.filter((c) => c.division === 1);
@@ -94,7 +93,4 @@ const g = promedio(goles);
 const rem = promedio(remates);
 console.log(`goles ${g.toFixed(2)} | remates ${rem.toFixed(1)} | conversion ${((g / rem) * 100).toFixed(0)}%`);
 console.log(`faltas ${promedio(faltas).toFixed(1)} | amarillas ${promedio(amarillas).toFixed(2)} | rojas ${promedio(rojas).toFixed(2)}`);
-const t: number[] = (globalThis as any).__tiros;
-const bandas = [0, 6, 12, 18, 24, 40];
-console.log('tiros por distancia: ' + bandas.slice(0, -1).map((b, k) => `${b}-${bandas[k + 1]}m ${t.filter((d) => d >= b && d < bandas[k + 1]).length}`).join(' | '));
 console.log(`pases ${promedio(pasesDados).toFixed(0)} | precision ${promedio(precision).toFixed(0)}% | robos ${promedio(cambiosDePosesion).toFixed(0)}`);
