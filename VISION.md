@@ -154,113 +154,64 @@ quedar en quiebra**. Si entra en negativo, el club empieza a degradarse.
 Esto le da al manejo de la plata una decision real y permanente, en vez de un
 solo numero que sube y baja.
 
-## Decisiones abiertas
+## Decisiones tomadas en diseno
 
-Cada una cambia codigo, no solo texto. La recomendacion es una opinion, no una
-decision tomada.
+Salieron de las recomendaciones, con el visto bueno del autor. Cualquiera se
+puede dar vuelta, pero mientras no se de vuelta, se programa asi.
 
-### 1. Con que parte del mundo arranca
-El mundo final son cuatro regiones, y America completa de punta a punta. Falta
-decidir por donde se empieza a construir, porque el coeficiente necesita varios
-anos de historia para que se note.
-**Recomendado:** America entera primero, con las tres copas funcionando. Es la
-region que el juego mas quiere, y arrancar con ella deja probar el coeficiente
-de verdad: ligas grandes, ligas chicas y una escalera entre medio. Las otras
-regiones despues, cuando la maquinaria este andando.
+1. **Con que parte del mundo arranca.** America entera primero, con las tres
+   copas andando. Las otras regiones despues.
+2. **Detalle del mundo.** El usuario elige cuantas ligas corren con detalle
+   completo. Las demas son **ligas livianas**: guardan posicion final, campeon
+   de copa, los tres mejores jugadores y la tabla de goleadores, y nada mas.
+   Alcanza para el coeficiente, para el mercado y para que el mundo se sienta
+   vivo, sin guardar cien mil jugadores.
+3. **Que hace especial a un jugador.** Un par de caracteristicas visibles para
+   planificar, y una oculta que aparece despues de varios partidos.
+4. **Numeros o sensaciones.** Numeros en tu plantel; palabras en los de afuera
+   hasta que los observes. Asi el ojeador sirve y el mercado tiene riesgo.
+5. **Un juvenil de 12 no muestra numeros.** Hasta los 15 solo se ve lo que dice
+   el coordinador de inferiores, y a veces se equivoca.
+6. **El usuario es un personaje** con nombre e historia. Que te echen no
+   termina la carrera: empieza un capitulo nuevo con ofertas segun lo que
+   hiciste.
+7. **Una sola carrera, sin volver atras.** El apego necesita que duela.
+8. **Una carrera apunta a diez o quince temporadas.** Eso condiciona cuanto
+   puede durar un partido y obliga a que el cambio de temporada tenga momentos
+   fuertes.
+9. **El que se va queda en el mundo.** Lo seguis viendo en otros clubes y tu
+   historia con el no se borra.
+10. **La hinchada opina de nombres propios,** no de una barra de animo.
+11. **Lesiones de las dos clases,** con las graves poco frecuentes.
+12. **Espanol,** sin dejar texto suelto tirado en el codigo del juego.
+13. **Degradarse es progresivo.** Primero lo reversible (personal,
+    mantenimiento), despues lo que cuesta recuperar (instalaciones,
+    inferiores). La primera senal es un aviso, no un castigo.
+14. **Las copas internacionales se pueden jugar,** pero simular tiene que ser
+    comodo: una temporada no puede obligar a jugar cuarenta partidos.
+15. **Africa entra como quinta region.**
+16. **La escalera de copas tambien baja.** Un grande que fracasa termina en la
+    copa chica.
+17. **La nota de rendimiento por partido es visible,** tipo puntaje de diario.
 
-### 2. Cuanto detalle tiene el mundo lejano
-Todos los jugadores del mundo con el mismo detalle, o detalle completo cerca
-tuyo y ficha reducida lejos.
-**Recomendado:** detalle completo en tu pais y en los clubes con los que
-competis, ficha reducida en el resto, que se completa si los observas. Con
-juveniles desde los 12 en cada club del mundo, guardar todo con el mismo
-detalle no entra en el telefono.
+## Lo que falta definir
 
-### 3. Que hace especial a un jugador
-Caracteristicas visibles en la ficha, ocultas que se descubren jugando, o las
-dos.
-**Recomendado:** las dos. Un par visibles que sirven para planificar, y una
-oculta que aparece despues de varios partidos. Lo oculto es lo que genera
-apego, pero si es todo oculto el usuario no puede decidir nada.
+Son las unicas que pueden frenar. Si no se contestan, se programa con lo que
+dice "por defecto" y se corrige despues.
 
-### 4. Numeros o sensaciones
-Mostrar los atributos como numeros, o describirlos con palabras.
-**Recomendado:** numeros en tu plantel, palabras en los jugadores de afuera
-hasta que los observes. Asi el ojeador tiene sentido y el mercado tiene riesgo.
-
-### 5. Que se ve de un juvenil de 12
-Un chico de 12 no puede tener la misma ficha que un profesional, pero algo hay
-que mostrar para que se sienta una promesa.
-**Recomendado:** nada de numeros hasta los 15. Antes de eso, solo lo que dice
-el coordinador de inferiores, y que se equivoque a veces.
-
-### 6. El usuario como personaje
-Un director tecnico anonimo, o alguien con nombre, historia y reputacion que
-viaja entre clubes.
-**Recomendado:** con nombre e historia. Hoy, cuando te echan, se termina la
-carrera; deberia empezar un capitulo nuevo con ofertas segun lo que hiciste.
-
-### 7. Consecuencia y permanencia
-Una sola carrera sin vuelta atras, o poder rehacer un partido que salio mal.
-**Recomendado:** una sola, sin undo. El apego necesita que las cosas duelan.
-
-### 8. Largo de una carrera
-Cuantas temporadas tiene que aguantar el juego antes de aburrir.
-**Recomendado:** apuntar a diez o quince temporadas. Eso obliga a que el
-partido sea corto o salteable, y a que el cambio de temporada tenga momentos
-fuertes.
-
-### 9. Que pasa con el que se va
-Desaparece, o lo seguis viendo en otros clubes y tu historia con el queda.
-**Recomendado:** queda. Cruzarte con el pibe que vendiste es una de las cosas
-mas baratas de implementar y de las que mas pegan.
-
-### 10. La hinchada opina de jugadores concretos
-Un solo numero de animo general, o opiniones sobre nombres propios.
-**Recomendado:** nombres propios. "Los hinchas quieren que juegue el pibe" vale
-mas que una barra de animo.
-
-### 11. Lesiones
-Molestias de dos semanas, o lesiones graves que cuestan media temporada.
-**Recomendado:** que existan las dos, con las graves poco frecuentes. Una
-rodilla rota es una historia; un golpe de dos semanas es ruido.
-
-### 12. Idioma y publico
-Solo espanol, o preparado para traducir.
-**Recomendado:** espanol solo por ahora, pero sin meter texto suelto en el
-codigo del juego cuando sea facil evitarlo.
-
-### 13. Que significa degradarse
-Cuando el presupuesto institucional queda en negativo, el club se degrada.
-Falta definir que se degrada y en que orden: instalaciones que bajan de nivel,
-personal que se va, inferiores que dejan de producir, socios que se borran.
-**Recomendado:** primero lo invisible y reversible (personal, mantenimiento),
-despues lo que duele y cuesta recuperar (nivel de instalaciones, inferiores).
-Que la primera senal sea un aviso, no un castigo.
-
-### 14. Las copas internacionales, se juegan o se simulan
-Si el mundo es global, aparecen muchos mas partidos por temporada.
-**Recomendado:** que se puedan jugar, pero que simular sea comodo. Una
-temporada con liga, copa nacional y copa internacional no puede obligar a
-jugar cuarenta partidos.
-
-### 15. Africa
-Las regiones quedaron en America, Europa, Asia y Oceania. Falta decidir si
-Africa entra como quinta region o se reparte.
-**Recomendado:** que entre como quinta. El modelo de datos no cambia y evita
-un agujero raro en el mapa.
-
-### 16. La escalera de copas, se sube y se baja
-La Panamericana da lugar en la Sudamericana al ano siguiente. Falta decidir si
-tambien hay caida: si un club grande que fracasa termina jugando la copa chica.
-**Recomendado:** que si. La caida es lo que hace que la escalera se sienta
-como una tabla y no como un premio.
-
-### 17. Nota de rendimiento por partido
-La necesitan la reputacion y el potencial. Falta decidir si es un numero
-visible tipo puntaje de diario, o algo interno que solo mueve el desarrollo.
-**Recomendado:** visible. Es barato y le da al usuario una razon para mirar la
-ficha de sus jugadores despues de cada partido.
+1. **Cuantas ligas con detalle se pueden elegir.**
+   *Por defecto:* de una a cinco, arrancando en dos. Mas que eso empieza a
+   pesar en el guardado y en el tiempo de simulacion por semana.
+2. **Si el detalle se puede sumar en el medio de la carrera.**
+   *Por defecto:* si, y ademas automatico. Si te vas a dirigir a otra liga, o
+   si te cruzas seguido con clubes de ahi, esa liga pasa a detalle completo
+   sola.
+3. **Si de una liga liviana se puede fichar.**
+   *Por defecto:* si, pero a ciegas: ves el nombre y poco mas hasta que lo
+   observes. Comprar sin saber es parte del riesgo.
+4. **Como se llama el juego.**
+   *Por defecto:* sigue siendo Futbol Manager Arcade, que es un nombre
+   provisorio.
 
 ## Como se usa este documento
 
