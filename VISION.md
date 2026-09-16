@@ -35,6 +35,11 @@ De ahi salen tres consecuencias que valen mas que cualquier feature suelta:
 - **Sin servidor.** Es una app web estatica: no hay backend, no hay IA en
   tiempo de ejecucion. Lo que parezca redaccion (noticias, declaraciones) sale
   de plantillas con mucha variacion, no de un modelo.
+- **El guardado no entra en localStorage.** Medido: hoy la partida pesa 274 kB
+  con 592 jugadores, unos 387 bytes por jugador. Con juveniles de 12 a 18 en
+  cada club se va a 0,4 MB en un solo pais, y con diez paises a 4 MB, contra un
+  limite de alrededor de 5 MB. Antes de sumar juveniles o paises hay que mudar
+  el guardado a IndexedDB, que no tiene ese techo.
 
 ## Decisiones tomadas
 
@@ -56,22 +61,91 @@ De ahi salen tres consecuencias que valen mas que cualquier feature suelta:
 9. **Los tests frenan el deploy.** Si el balance se sale de rango, no se
    publica.
 
+## Sistemas que definen el juego
+
+Estos no son decisiones abiertas: son la direccion que quiere el proyecto.
+Estan escritos con el detalle suficiente para implementarlos, y con las
+consecuencias tecnicas que traen.
+
+### Reputacion de jugadores y clubes
+Cada jugador y cada club tienen reputacion, que sube y baja con los
+rendimientos en su liga y en el plano internacional.
+
+Sirve sobre todo para que **el mercado sea coherente**: un jugador no se va a
+cualquier lado. Si la reputacion del club que lo busca esta muy por debajo de
+la suya, no acepta; si esta muy por arriba, el club no lo mira. Eso le pone
+techo y piso al mercado sin necesidad de reglas artificiales.
+
+### Coeficiente de ligas
+Cada liga tiene un coeficiente que sale de como le fue a sus clubes en los
+ultimos anos a nivel internacional, igual que el coeficiente de UEFA, y tambien
+para Sudamerica y el resto. El coeficiente reparte **cupos** a cada pais para
+las copas internacionales.
+
+Es lo que convierte la carrera en un proyecto largo con progreso medible: el
+desafio deja de ser "salir campeon otra vez" y pasa a ser *"hacer que Bolivia
+sea la mejor liga del mundo"*. El progreso se ve en una tabla que se mueve de
+a poco, temporada tras temporada.
+
+**Consecuencia:** obliga a que el mundo tenga varios paises, competencias
+internacionales y memoria de varios anos de resultados por pais.
+
+### Juveniles de 12 anos a reserva
+Cada club tiene divisiones inferiores desde los 12 anos hasta reserva. Se los
+ve crecer ano a ano, y ahi aparecen las promesas del club, que se sienten como
+proyectos propios mucho antes de debutar. **Recien a partir de los 15 pueden
+subir al primer equipo.**
+
+**Consecuencia:** multiplica la cantidad de jugadores del mundo y obliga a que
+la ficha de un chico de 12 no se lea como la de un profesional.
+
+### Instalaciones
+El club tiene instalaciones que se pueden mejorar y que impactan en dos
+lugares: el desarrollo de los jugadores y el funcionamiento del club. El
+predio de entrenamiento, las inferiores, la parte medica y el estadio son
+palancas distintas, no un solo numero.
+
+### Potencial alcanzable
+Cada jugador tiene un potencial maximo. **Solo se supera si realmente se
+destaca**, y no es lo normal. Que lo alcance o se quede lejos depende de tres
+cosas: el nivel del predio de entrenamiento, los minutos que juega y su
+rendimiento.
+
+**Consecuencia:** hace falta una nota de rendimiento por partido, que hoy no
+existe. Tambien la necesita la reputacion.
+
+### Dos presupuestos separados
+La caja del club se divide en dos:
+
+- **Deportivo:** fichajes, sueldos de jugadores, operaciones del futbol.
+- **Institucional:** sueldos del personal, mantenimiento, instalaciones y todo
+  lo que sostiene al club.
+
+Se puede pasar presupuesto de uno al otro, pero **el institucional nunca puede
+quedar en quiebra**. Si entra en negativo, el club empieza a degradarse.
+
+Esto le da al manejo de la plata una decision real y permanente, en vez de un
+solo numero que sube y baja.
+
 ## Decisiones abiertas
 
 Cada una cambia codigo, no solo texto. La recomendacion es una opinion, no una
 decision tomada.
 
-### 1. Alcance del mundo
-Una liga con dos divisiones, o varios paises con sus ligas.
-**Recomendado:** empezar jugando solo en un pais, pero que el modelo de datos
-tenga pais y liga desde ahora. Meterle una dimension de pais despues al
-fixture, la copa, los ascensos y el mercado es caro.
+### 1. Cuantos paises entran y en que orden
+El coeficiente de ligas ya decide que el mundo es global. Lo que falta decidir
+es con cuantos paises arranca y como se suman los demas, porque el coeficiente
+necesita varios anos de historia internacional para tener sentido.
+**Recomendado:** arrancar con seis u ocho paises de Sudamerica, con copa
+continental, y sumar Europa despues. Con seis ya se ve el coeficiente moverse.
 
-### 2. Cuantos jugadores tiene el mundo
-Pocos y todos con identidad, o muchos y la mayoria anonimos.
-**Recomendado:** profundidad en tu club y en los que te rodean; el resto del
-mundo se genera cuando hace falta. Un mercado global gigante y el "conocer a
-tus jugadores" se pelean entre si.
+### 2. Cuanto detalle tiene el mundo lejano
+Todos los jugadores del mundo con el mismo detalle, o detalle completo cerca
+tuyo y ficha reducida lejos.
+**Recomendado:** detalle completo en tu pais y en los clubes con los que
+competis, ficha reducida en el resto, que se completa si los observas. Con
+juveniles desde los 12 en cada club del mundo, guardar todo con el mismo
+detalle no entra en el telefono.
 
 ### 3. Que hace especial a un jugador
 Caracteristicas visibles en la ficha, ocultas que se descubren jugando, o las
@@ -85,10 +159,11 @@ Mostrar los atributos como numeros, o describirlos con palabras.
 **Recomendado:** numeros en tu plantel, palabras en los jugadores de afuera
 hasta que los observes. Asi el ojeador tiene sentido y el mercado tiene riesgo.
 
-### 5. El peso de la cantera
-Fuente barata de jugadores, o el corazon emocional del juego.
-**Recomendado:** el corazon. Un pibe que debuta a los 17 y se queda diez
-temporadas es la historia mas fuerte que puede contar el juego.
+### 5. Que se ve de un juvenil de 12
+Un chico de 12 no puede tener la misma ficha que un profesional, pero algo hay
+que mostrar para que se sienta una promesa.
+**Recomendado:** nada de numeros hasta los 15. Antes de eso, solo lo que dice
+el coordinador de inferiores, y que se equivoque a veces.
 
 ### 6. El usuario como personaje
 Un director tecnico anonimo, o alguien con nombre, historia y reputacion que
@@ -125,6 +200,26 @@ rodilla rota es una historia; un golpe de dos semanas es ruido.
 Solo espanol, o preparado para traducir.
 **Recomendado:** espanol solo por ahora, pero sin meter texto suelto en el
 codigo del juego cuando sea facil evitarlo.
+
+### 13. Que significa degradarse
+Cuando el presupuesto institucional queda en negativo, el club se degrada.
+Falta definir que se degrada y en que orden: instalaciones que bajan de nivel,
+personal que se va, inferiores que dejan de producir, socios que se borran.
+**Recomendado:** primero lo invisible y reversible (personal, mantenimiento),
+despues lo que duele y cuesta recuperar (nivel de instalaciones, inferiores).
+Que la primera senal sea un aviso, no un castigo.
+
+### 14. Las copas internacionales, se juegan o se simulan
+Si el mundo es global, aparecen muchos mas partidos por temporada.
+**Recomendado:** que se puedan jugar, pero que simular sea comodo. Una
+temporada con liga, copa nacional y copa internacional no puede obligar a
+jugar cuarenta partidos.
+
+### 15. Nota de rendimiento por partido
+La necesitan la reputacion y el potencial. Falta decidir si es un numero
+visible tipo puntaje de diario, o algo interno que solo mueve el desarrollo.
+**Recomendado:** visible. Es barato y le da al usuario una razon para mirar la
+ficha de sus jugadores despues de cada partido.
 
 ## Como se usa este documento
 
