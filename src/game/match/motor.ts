@@ -1,0 +1,1101 @@
+import { FORMACIONES } from '@/sim/tacticas';
+import {
+  ALCANCE_ALTO,
+  ALCANCE_ALTO_ARQUERO,
+  ANCHO,
+  AREA_ANCHO,
+  AREA_LARGO,
+  ARCO_ALTO,
+  ARCO_ANCHO,
+  GRAVEDAD,
+  LARGO,
+  MINUTOS_POR_TIEMPO,
+  RADIO_JUGADOR,
+  RADIO_PELOTA,
+  REBOTE,
+  ROCE_AIRE,
+  ROCE_PISO,
+  SEGUNDOS_POR_TIEMPO,
+  VELOCIDAD_MAX,
+  VELOCIDAD_MIN,
+  dentroDelArco,
+  distancia2,
+  limitar,
+} from './mundo';
+import type {
+  AvisoPartido,
+  Bando,
+  ConfiguracionEquipo,
+  ConfiguracionPartido,
+  EntradaPartido,
+  FaseJuego,
+  JugadorPartido,
+  Pelota,
+  ResultadoPartido,
+} from './entidades';
+
+/**
+ * Motor del partido: reglas, fisica e inteligencia artificial.
+ *
+ * No sabe nada de como se dibuja. El render 3D lee este estado cada cuadro y
+ * el motor avanza con `paso`, asi que se puede simular sin pantalla.
+ */
+export class MotorPartido {
+  readonly config: ConfiguracionPartido;
+  readonly jugadores: JugadorPartido[] = [];
+  readonly pelota: Pelota = {
+    x: 0,
+    y: RADIO_PELOTA,
+    z: 0,
+    vx: 0,
+    vy: 0,
+    vz: 0,
+    duenoId: null,
+    ultimoToqueId: null,
+    bloqueoPosesion: 0,
+    giro: 0,
+  };
+
+  fase: FaseJuego = 'saque_inicial';
+  /** Si esta en true, la IA maneja tambien al equipo del usuario. Sirve para medir el balance. */
+  iaTotal = false;
+  aviso: AvisoPartido | null = null;
+  tiempoActual: 1 | 2 = 1;
+  segundosJugados = 0;
+  terminado = false;
+
+  golesUsuario = 0;
+  golesRival = 0;
+  controladoId: string | null = null;
+
+  private goleadoresUsuario: string[] = [];
+  private goleadoresRival: string[] = [];
+  private remates = { usuario: 0, rival: 0 };
+  private posesion = { usuario: 0, rival: 0 };
+
+  private temporizadorFase = 0;
+  private saqueDe: Bando = 'usuario';
+  /** Mientras dure, un segundo jugador del usuario va a presionar la pelota. */
+  private presionando = 0;
+  private tiempoArqueroConPelota = 0;
+  /** Hace cuanto que la pelota viaja suelta y rapido: da el tiempo de reaccion. */
+  private vueloDeLaPelota = 0;
+  /** Evita que el cambio de jugador se dispare varias veces de un toque. */
+  private esperaCambio = 0;
+
+  constructor(config: ConfiguracionPartido) {
+    this.config = config;
+    this.jugadores.push(...this.armarEquipo(config.usuario, 'usuario'));
+    this.jugadores.push(...this.armarEquipo(config.rival, 'rival'));
+    this.prepararSaqueInicial('usuario');
+    this.anunciar('¡ARRANCA!', `${config.usuario.abrev} vs ${config.rival.abrev}`, 1.4);
+  }
+
+  // ------------------------------------------------------------------ armado
+
+  private armarEquipo(equipo: ConfiguracionEquipo, bando: Bando): JugadorPartido[] {
+    const ranuras = FORMACIONES[equipo.tacticas.formacion];
+    return ranuras.map((ranura, i) => {
+      const fuente = equipo.jugadores[i];
+      const punto = this.aMundo(bando, ranura.x, ranura.y);
+      return {
+        id: fuente.id,
+        nombre: fuente.nombre,
+        dorsal: i + 1,
+        bando,
+        pos: ranura.pos,
+        attrs: fuente.attrs,
+        baseAncho: ranura.x,
+        baseLargo: ranura.y,
+        x: punto.x,
+        z: punto.z,
+        vx: 0,
+        vz: 0,
+        rumbo: bando === 'usuario' ? 0 : Math.PI,
+        energia: 0.65 + (fuente.forma / 100) * 0.35,
+        esArquero: ranura.pos === 'ARQ',
+        estado: 'normal',
+        bloqueo: 0,
+        temporizador: 0,
+        paso: Math.random() * Math.PI * 2,
+        patada: 0,
+      };
+    });
+  }
+
+  /**
+   * Pasa una posicion de formacion a coordenadas de cancha.
+   * El usuario ataca hacia +X y el rival hacia -X, siempre, tambien en el
+   * segundo tiempo: en un arcade marea menos que te cambien de lado.
+   */
+  private aMundo(bando: Bando, ancho: number, largo: number): { x: number; z: number } {
+    if (bando === 'usuario') {
+      return { x: (largo - 0.5) * LARGO, z: (ancho - 0.5) * ANCHO };
+    }
+    return { x: (0.5 - largo) * LARGO, z: (0.5 - ancho) * ANCHO };
+  }
+
+  private arcoRivalDe(bando: Bando): number {
+    return bando === 'usuario' ? LARGO / 2 : -LARGO / 2;
+  }
+
+  private arcoPropioDe(bando: Bando): number {
+    return bando === 'usuario' ? -LARGO / 2 : LARGO / 2;
+  }
+
+  private equipoDe(bando: Bando): ConfiguracionEquipo {
+    return bando === 'usuario' ? this.config.usuario : this.config.rival;
+  }
+
+  // ------------------------------------------------------------------- bucle
+
+  paso(dt: number, entrada: EntradaPartido): void {
+    if (this.terminado) return;
+    this.esperaCambio = Math.max(0, this.esperaCambio - dt);
+    this.presionando = Math.max(0, this.presionando - dt);
+
+    if (this.temporizadorFase > 0) {
+      this.temporizadorFase -= dt;
+      this.moverJugadores(dt, entrada, true);
+      this.pegarPelotaAlDueno();
+      if (this.temporizadorFase <= 0) this.terminarFase();
+      return;
+    }
+
+    if (this.fase !== 'jugando') return;
+
+    this.segundosJugados += dt;
+    this.registrarPosesion(dt);
+    this.elegirControlado();
+    this.moverJugadores(dt, entrada, false);
+    this.aplicarAcciones(entrada);
+    this.moverPelota(dt);
+    this.revisarArqueroConPelota(dt);
+    this.revisarLimites();
+    this.revisarReloj();
+  }
+
+  private anunciar(titulo: string, detalle: string, segundos: number): void {
+    this.aviso = { titulo, detalle };
+    this.temporizadorFase = segundos;
+  }
+
+  private terminarFase(): void {
+    this.aviso = null;
+    this.temporizadorFase = 0;
+
+    switch (this.fase) {
+      case 'entretiempo':
+        this.tiempoActual = 2;
+        this.segundosJugados = 0;
+        this.prepararSaqueInicial(this.saqueDe === 'usuario' ? 'rival' : 'usuario');
+        this.fase = 'jugando';
+        break;
+      case 'final':
+        this.terminado = true;
+        break;
+      case 'saque_arco':
+        this.sacarDesdeElArco();
+        this.fase = 'jugando';
+        break;
+      default:
+        this.fase = 'jugando';
+        break;
+    }
+  }
+
+  private registrarPosesion(dt: number): void {
+    const dueno = this.porId(this.pelota.duenoId);
+    if (!dueno) return;
+    if (dueno.bando === 'usuario') this.posesion.usuario += dt;
+    else this.posesion.rival += dt;
+  }
+
+  private revisarReloj(): void {
+    if (this.segundosJugados < SEGUNDOS_POR_TIEMPO) return;
+    if (this.tiempoActual === 1) {
+      this.fase = 'entretiempo';
+      this.anunciar('ENTRETIEMPO', `${this.golesUsuario} - ${this.golesRival}`, 2);
+    } else {
+      this.fase = 'final';
+      this.anunciar('FINAL', `${this.golesUsuario} - ${this.golesRival}`, 2.4);
+    }
+  }
+
+  /** Minuto de partido que se muestra en el marcador. */
+  get minuto(): number {
+    const parcial = Math.min(
+      MINUTOS_POR_TIEMPO,
+      Math.floor((this.segundosJugados / SEGUNDOS_POR_TIEMPO) * MINUTOS_POR_TIEMPO),
+    );
+    return this.tiempoActual === 1 ? parcial : MINUTOS_POR_TIEMPO + parcial;
+  }
+
+  get tieneLaPelotaElUsuario(): boolean {
+    const dueno = this.porId(this.pelota.duenoId);
+    return dueno?.bando === 'usuario';
+  }
+
+  // -------------------------------------------------------------- jugadores
+
+  porId(id: string | null): JugadorPartido | null {
+    if (!id) return null;
+    return this.jugadores.find((j) => j.id === id) ?? null;
+  }
+
+  private velocidadDe(j: JugadorPartido): number {
+    const base = VELOCIDAD_MIN + (j.attrs.ritmo / 100) * (VELOCIDAD_MAX - VELOCIDAD_MIN);
+    return base * (0.78 + j.energia * 0.22);
+  }
+
+  private masCercanoALaPelota(bando: Bando, incluirArquero: boolean): JugadorPartido | null {
+    let mejor: JugadorPartido | null = null;
+    let mejorDistancia = Infinity;
+    for (const j of this.jugadores) {
+      if (j.bando !== bando || (j.esArquero && !incluirArquero)) continue;
+      const d = distancia2(j.x, j.z, this.pelota.x, this.pelota.z);
+      if (d < mejorDistancia) {
+        mejorDistancia = d;
+        mejor = j;
+      }
+    }
+    return mejor;
+  }
+
+  private elegirControlado(): void {
+    const dueno = this.porId(this.pelota.duenoId);
+    if (dueno && dueno.bando === 'usuario') {
+      this.controladoId = dueno.id;
+      return;
+    }
+    const actual = this.porId(this.controladoId);
+    // Mientras el jugador marcado siga siendo razonable, no se lo cambio al
+    // usuario de prepo: el cambio automatico constante desorienta.
+    if (actual && actual.bando === 'usuario' && actual.estado === 'normal') {
+      const suya = distancia2(actual.x, actual.z, this.pelota.x, this.pelota.z);
+      const cercano = this.masCercanoALaPelota('usuario', false);
+      if (!cercano || suya < 14) return;
+    }
+    this.controladoId = this.masCercanoALaPelota('usuario', false)?.id ?? this.controladoId;
+  }
+
+  private moverJugadores(dt: number, entrada: EntradaPartido, detenido: boolean): void {
+    const dueno = this.porId(this.pelota.duenoId);
+    const bandoConPelota: Bando | null = dueno ? dueno.bando : null;
+    const perseguidores = detenido ? new Set<string>() : this.elegirPerseguidores(bandoConPelota);
+
+    for (const j of this.jugadores) {
+      j.bloqueo = Math.max(0, j.bloqueo - dt);
+      j.patada = Math.max(0, j.patada - dt);
+      j.energia = Math.max(0.5, j.energia - dt * 0.0022 * (1.4 - j.attrs.fisico / 200));
+
+      if (j.estado === 'barrida' || j.estado === 'caido') {
+        this.avanzarBarrida(j, dt);
+        continue;
+      }
+      if (j.patada <= 0 && j.estado === 'pateando') j.estado = 'normal';
+
+      if (j.esArquero) {
+        this.moverArquero(j, dt, detenido);
+        continue;
+      }
+
+      if (!detenido && this.controladoId === j.id && !this.iaTotal) {
+        this.moverControlado(j, dt, entrada);
+        continue;
+      }
+
+      if (!detenido && this.pelota.duenoId === j.id && (this.iaTotal || this.controladoId !== j.id)) {
+        this.moverConPelotaIa(j, dt);
+        continue;
+      }
+
+      if (perseguidores.has(j.id)) {
+        this.irHacia(j, this.pelota.x, this.pelota.z, dt, 1);
+        continue;
+      }
+
+      const destino = this.destinoDeFormacion(j, bandoConPelota);
+      this.irHacia(j, destino.x, destino.z, dt, detenido ? 0.55 : 0.85);
+    }
+
+    if (!detenido) this.resolverDisputa(dt);
+  }
+
+  private elegirPerseguidores(bandoConPelota: Bando | null): Set<string> {
+    const perseguidores = new Set<string>();
+    for (const bando of ['usuario', 'rival'] as Bando[]) {
+      if (bandoConPelota === bando) continue;
+      const candidatos = this.jugadores
+        .filter(
+          (j) =>
+            j.bando === bando &&
+            !j.esArquero &&
+            j.estado === 'normal' &&
+            // Al que maneja el usuario no lo mando yo a buscarla: la va a buscar el.
+            (this.iaTotal || j.id !== this.controladoId),
+        )
+        .sort(
+          (a, b) =>
+            distancia2(a.x, a.z, this.pelota.x, this.pelota.z) -
+            distancia2(b.x, b.z, this.pelota.x, this.pelota.z),
+        );
+
+      if (candidatos[0]) perseguidores.add(candidatos[0].id);
+      const presionAlta = this.equipoDe(bando).tacticas.presion > 60;
+      const presionManual = bando === 'usuario' && this.presionando > 0;
+      if ((presionAlta || presionManual) && candidatos[1]) perseguidores.add(candidatos[1].id);
+    }
+    return perseguidores;
+  }
+
+  /** Puesto de reposo, corrido hacia la pelota y segun lo que pida la tactica. */
+  private destinoDeFormacion(j: JugadorPartido, bandoConPelota: Bando | null): { x: number; z: number } {
+    const tacticas = this.equipoDe(j.bando).tacticas;
+    const base = this.aMundo(j.bando, j.baseAncho, j.baseLargo);
+    const direccion = j.bando === 'usuario' ? 1 : -1;
+
+    const atacando = bandoConPelota === j.bando;
+    const mentalidad = tacticas.mentalidad / 100;
+    const linea = tacticas.lineaDefensiva / 100;
+
+    const empuje = atacando ? 5 + mentalidad * 17 : -(4 + (1 - linea) * 14);
+    const seguirPelota = (this.pelota.x - base.x) * 0.2;
+
+    return {
+      x: limitar(base.x + empuje * direccion + seguirPelota, -LARGO / 2 + 2, LARGO / 2 - 2),
+      z: limitar(base.z + this.pelota.z * 0.32, -ANCHO / 2 + 1.5, ANCHO / 2 - 1.5),
+    };
+  }
+
+  private irHacia(j: JugadorPartido, x: number, z: number, dt: number, factor: number): void {
+    const dx = x - j.x;
+    const dz = z - j.z;
+    const d = Math.hypot(dx, dz);
+    if (d < 0.35) {
+      j.vx *= 0.82;
+      j.vz *= 0.82;
+    } else {
+      const velocidad = this.velocidadDe(j) * factor;
+      const suave = Math.min(1, dt * 6);
+      j.vx += ((dx / d) * velocidad - j.vx) * suave;
+      j.vz += ((dz / d) * velocidad - j.vz) * suave;
+    }
+    this.integrar(j, dt);
+  }
+
+  private moverControlado(j: JugadorPartido, dt: number, entrada: EntradaPartido): void {
+    const conPelota = this.pelota.duenoId === j.id;
+    const velocidad = this.velocidadDe(j) * (conPelota ? 0.9 : 1);
+    const suave = Math.min(1, dt * 9);
+    j.vx += (entrada.moverX * velocidad - j.vx) * suave;
+    j.vz += (entrada.moverZ * velocidad - j.vz) * suave;
+    if (entrada.moverX === 0 && entrada.moverZ === 0) {
+      j.vx *= 0.84;
+      j.vz *= 0.84;
+    }
+    this.integrar(j, dt);
+  }
+
+  /** IA del que lleva la pelota: encara, la suelta si lo aprietan, define si puede. */
+  private moverConPelotaIa(j: JugadorPartido, dt: number): void {
+    const arco = this.arcoRivalDe(j.bando);
+    const distanciaArco = Math.abs(arco - j.x);
+    const rival = this.rivalMasCercano(j);
+    const presionado = rival ? distancia2(j.x, j.z, rival.x, rival.z) < 3.2 : false;
+
+    if (distanciaArco < 32 && Math.abs(j.z) < 24) {
+      const ganas = 0.55 + j.attrs.tiro / 220 - distanciaArco / 90;
+      if (Math.random() < ganas * dt * 2.1) {
+        this.patear(j, 0.85);
+        return;
+      }
+    }
+
+    if (presionado && Math.random() < dt * 2.2) {
+      const direccion = j.bando === 'usuario' ? 1 : -1;
+      this.pasar(j, direccion, 0, Math.random() < 0.25);
+      return;
+    }
+
+    this.irHacia(j, arco, j.z * 0.6, dt, 0.95);
+  }
+
+  private rivalMasCercano(j: JugadorPartido): JugadorPartido | null {
+    let mejor: JugadorPartido | null = null;
+    let mejorDistancia = Infinity;
+    for (const otro of this.jugadores) {
+      if (otro.bando === j.bando || otro.estado === 'caido') continue;
+      const d = distancia2(j.x, j.z, otro.x, otro.z);
+      if (d < mejorDistancia) {
+        mejorDistancia = d;
+        mejor = otro;
+      }
+    }
+    return mejor;
+  }
+
+  private moverArquero(arquero: JugadorPartido, dt: number, detenido: boolean): void {
+    const linea = this.arcoPropioDe(arquero.bando);
+    const haciaAdentro = arquero.bando === 'usuario' ? 1 : -1;
+    const dueno = this.porId(this.pelota.duenoId);
+
+    let objetivoZ: number;
+    let objetivoX: number;
+    let factor = 1;
+
+    const cruce = this.cruceDelRemate(arquero);
+    if (!detenido && cruce !== null) {
+      // Se estira hacia donde va a cruzar la linea. Que llegue o no depende de
+      // su velocidad y de lo que se equivoque al leer el remate.
+      const error = (1.1 + ((100 - arquero.attrs.arquero) / 100) * 2.6) * (Math.random() - 0.5) * 2;
+      objetivoZ = limitar(cruce + error, -ARCO_ANCHO / 2 - 1, ARCO_ANCHO / 2 + 1);
+      objetivoX = linea + 0.8 * haciaAdentro;
+      factor = 1.3;
+    } else {
+      const distanciaPelota = Math.abs(this.pelota.x - linea);
+      const peligro = !detenido && distanciaPelota < AREA_LARGO + 6 && (!dueno || dueno.bando !== arquero.bando);
+      const salida = peligro ? Math.min(9, AREA_LARGO + 6 - distanciaPelota) : 1.2;
+      objetivoZ = limitar(this.pelota.z * 0.62, -ARCO_ANCHO / 2 - 0.6, ARCO_ANCHO / 2 + 0.6);
+      objetivoX = linea + salida * haciaAdentro;
+    }
+
+    const velocidad = (2.8 + (arquero.attrs.arquero / 100) * 3.4) * factor;
+    const dx = objetivoX - arquero.x;
+    const dz = objetivoZ - arquero.z;
+    const d = Math.hypot(dx, dz) || 1;
+    const suave = Math.min(1, dt * 9);
+    arquero.vx += ((dx / d) * velocidad - arquero.vx) * suave;
+    arquero.vz += ((dz / d) * velocidad - arquero.vz) * suave;
+    this.integrar(arquero, dt);
+  }
+
+  /**
+   * En que Z va a cruzar la linea, si viene un remate a ese arco.
+   * Devuelve null hasta que pasa el tiempo de reaccion: un arquero no sale
+   * disparado en el mismo instante en que el otro le pega.
+   */
+  private cruceDelRemate(arquero: JugadorPartido): number | null {
+    if (this.pelota.duenoId !== null) return null;
+    const reaccion = 0.12 + ((100 - arquero.attrs.arquero) / 100) * 0.3;
+    if (this.vueloDeLaPelota < reaccion) return null;
+    const linea = this.arcoPropioDe(arquero.bando);
+    const hacia = linea > 0 ? this.pelota.vx > 6 : this.pelota.vx < -6;
+    if (!hacia) return null;
+    const tiempo = (linea - this.pelota.x) / this.pelota.vx;
+    if (tiempo <= 0 || tiempo > 1.6) return null;
+    return this.pelota.z + this.pelota.vz * tiempo;
+  }
+
+  private integrar(j: JugadorPartido, dt: number): void {
+    j.x = limitar(j.x + j.vx * dt, -LARGO / 2 - 2, LARGO / 2 + 2);
+    j.z = limitar(j.z + j.vz * dt, -ANCHO / 2 - 2, ANCHO / 2 + 2);
+
+    const velocidad = Math.hypot(j.vx, j.vz);
+    if (velocidad > 0.4) {
+      const objetivo = Math.atan2(j.vz, j.vx);
+      j.rumbo = anguloHacia(j.rumbo, objetivo, dt * 9);
+      j.paso += velocidad * dt * 1.5;
+    } else {
+      j.paso += dt * 0.6;
+    }
+  }
+
+  // ---------------------------------------------------------------- acciones
+
+  private aplicarAcciones(entrada: EntradaPartido): void {
+    if (this.iaTotal) return;
+    const jugador = this.porId(this.controladoId);
+    if (!jugador || jugador.estado === 'caido' || jugador.estado === 'barrida') return;
+
+    const conPelota = this.pelota.duenoId === jugador.id;
+    const direccionAtaque = jugador.bando === 'usuario' ? 1 : -1;
+
+    if (conPelota) {
+      if (entrada.a) this.pasar(jugador, entrada.moverX || direccionAtaque, entrada.moverZ, false);
+      else if (entrada.b) this.patear(jugador, entrada.potencia);
+      else if (entrada.c) this.pasar(jugador, entrada.moverX || direccionAtaque, entrada.moverZ, true);
+      return;
+    }
+
+    if (entrada.a) this.cambiarJugador();
+    else if (entrada.b) this.barrerse(jugador);
+    else if (entrada.c) this.presionando = 2.2;
+  }
+
+  private cambiarJugador(): void {
+    if (this.esperaCambio > 0) return;
+    this.esperaCambio = 0.25;
+
+    const candidatos = this.jugadores
+      .filter((j) => j.bando === 'usuario' && !j.esArquero && j.estado === 'normal')
+      .sort(
+        (a, b) =>
+          distancia2(a.x, a.z, this.pelota.x, this.pelota.z) -
+          distancia2(b.x, b.z, this.pelota.x, this.pelota.z),
+      );
+    if (candidatos.length === 0) return;
+
+    const actual = candidatos.findIndex((j) => j.id === this.controladoId);
+    this.controladoId = candidatos[(actual + 1) % candidatos.length].id;
+  }
+
+  /** Barrida: se tira al piso hacia adelante. Si llega a la pelota la saca. */
+  private barrerse(j: JugadorPartido): void {
+    if (j.estado !== 'normal') return;
+    j.estado = 'barrida';
+    j.temporizador = 0.55;
+    const velocidad = this.velocidadDe(j) * 1.7;
+    j.vx = Math.cos(j.rumbo) * velocidad;
+    j.vz = Math.sin(j.rumbo) * velocidad;
+  }
+
+  private avanzarBarrida(j: JugadorPartido, dt: number): void {
+    j.temporizador -= dt;
+
+    if (j.estado === 'barrida') {
+      j.vx *= Math.pow(0.22, dt);
+      j.vz *= Math.pow(0.22, dt);
+      this.integrar(j, dt);
+      this.revisarContactoBarrida(j);
+      if (j.temporizador <= 0) {
+        j.estado = 'caido';
+        j.temporizador = 0.95;
+        j.vx = 0;
+        j.vz = 0;
+      }
+      return;
+    }
+
+    j.vx = 0;
+    j.vz = 0;
+    if (j.temporizador <= 0) j.estado = 'normal';
+  }
+
+  private revisarContactoBarrida(j: JugadorPartido): void {
+    const dueno = this.porId(this.pelota.duenoId);
+
+    if (distancia2(j.x, j.z, this.pelota.x, this.pelota.z) < 1.4 && this.pelota.y < 1) {
+      // Llego a la pelota: la despeja hacia adelante y el rival la pierde.
+      this.pelota.duenoId = null;
+      this.pelota.ultimoToqueId = j.id;
+      const angulo = j.rumbo + (Math.random() - 0.5) * 0.7;
+      const fuerza = 7 + j.attrs.quite / 12;
+      this.pelota.vx = Math.cos(angulo) * fuerza;
+      this.pelota.vz = Math.sin(angulo) * fuerza;
+      this.pelota.vy = 1.2;
+      this.pelota.bloqueoPosesion = 0.35;
+      if (dueno) dueno.bloqueo = 0.6;
+      j.temporizador = Math.min(j.temporizador, 0.12);
+      return;
+    }
+
+    if (!dueno || dueno.bando === j.bando) return;
+    if (distancia2(j.x, j.z, dueno.x, dueno.z) > 1.3) return;
+
+    // Le pego al jugador sin tocar la pelota: falta.
+    this.cobrarFalta(dueno, j);
+  }
+
+  private cobrarFalta(victima: JugadorPartido, infractor: JugadorPartido): void {
+    infractor.estado = 'caido';
+    infractor.temporizador = 1.4;
+    victima.estado = 'caido';
+    victima.temporizador = 0.7;
+
+    this.pelota.x = limitar(victima.x, -LARGO / 2 + 3, LARGO / 2 - 3);
+    this.pelota.z = limitar(victima.z, -ANCHO / 2 + 2, ANCHO / 2 - 2);
+    this.pelota.y = RADIO_PELOTA;
+    this.detenerPelota();
+
+    this.fase = 'libre';
+    this.darLaPelotaA(victima.bando, this.pelota.x, this.pelota.z, victima.id);
+    this.anunciar('FALTA', `Tiro libre para ${this.equipoDe(victima.bando).abrev}`, 1.3);
+  }
+
+  private pasar(j: JugadorPartido, intencionX: number, intencionZ: number, bombeado: boolean): void {
+    const companeros = this.jugadores.filter(
+      (o) => o.bando === j.bando && o.id !== j.id && !o.esArquero && o.estado !== 'caido',
+    );
+    if (companeros.length === 0) return;
+
+    const largo = Math.hypot(intencionX, intencionZ) || 1;
+    const dirX = intencionX / largo;
+    const dirZ = intencionZ / largo;
+    const direccionAtaque = j.bando === 'usuario' ? 1 : -1;
+
+    let mejor: JugadorPartido | null = null;
+    let mejorPuntaje = -Infinity;
+
+    for (const c of companeros) {
+      const dx = c.x - j.x;
+      const dz = c.z - j.z;
+      const d = Math.hypot(dx, dz);
+      if (d < 3 || d > (bombeado ? 55 : 38)) continue;
+
+      const alineacion = (dx / d) * dirX + (dz / d) * dirZ;
+      if (alineacion < -0.2) continue;
+
+      const marca = this.rivalMasCercano(c);
+      const libre = marca ? Math.min(1, distancia2(c.x, c.z, marca.x, marca.z) / 7) : 1;
+      const avance = ((c.x - j.x) * direccionAtaque) / 30;
+
+      const ruido = (Math.random() - 0.5) * ((100 - j.attrs.pase) / 45);
+      const puntaje = alineacion * 2.4 + libre * 1.2 + avance - d / 70 + ruido;
+      if (puntaje > mejorPuntaje) {
+        mejorPuntaje = puntaje;
+        mejor = c;
+      }
+    }
+
+    if (!mejor) return;
+
+    // Le adelanto el pase a donde va a estar.
+    const anticipo = bombeado ? 0.6 : 0.3;
+    const destinoX = mejor.x + mejor.vx * anticipo;
+    const destinoZ = mejor.z + mejor.vz * anticipo;
+    const error = ((100 - j.attrs.pase) / 100) * (bombeado ? 3.2 : 2) * (Math.random() - 0.5) * 2;
+
+    this.soltarPelota(j);
+    j.estado = 'pateando';
+    j.patada = 0.25;
+
+    const dx = destinoX - j.x + error;
+    const dz = destinoZ - j.z + error * 0.5;
+    const d = Math.hypot(dx, dz) || 1;
+
+    if (bombeado) {
+      // Pase con altura: resuelvo la parabola para que caiga en el destino.
+      const vuelo = limitar(d / 14 + 0.45, 0.6, 1.9);
+      this.pelota.vx = dx / vuelo;
+      this.pelota.vz = dz / vuelo;
+      this.pelota.vy = (GRAVEDAD * vuelo) / 2;
+    } else {
+      const fuerza = limitar(d * 1.5, 9, 26);
+      this.pelota.vx = (dx / d) * fuerza;
+      this.pelota.vz = (dz / d) * fuerza;
+      this.pelota.vy = 0;
+    }
+  }
+
+  private patear(j: JugadorPartido, potencia: number): void {
+    const arco = this.arcoRivalDe(j.bando);
+    const dx = arco - j.x;
+    const objetivoZ = limitar((Math.random() - 0.5) * ARCO_ANCHO * 0.85, -3.3, 3.3);
+    const dz = objetivoZ - j.z;
+    const d = Math.hypot(dx, dz) || 1;
+
+    // La punteria empeora con la distancia y mejora con el atributo de tiro.
+    const dispersion = ((100 - j.attrs.tiro) / 100) * 0.085 + (d / LARGO) * 0.12;
+    const desvio = (Math.random() - 0.5) * 2 * dispersion;
+    const angulo = Math.atan2(dz, dx) + desvio;
+
+    const fuerza = limitar(19 + potencia * 12 + j.attrs.tiro * 0.06, 16, 34);
+    const vuelo = d / fuerza;
+    const alturaObjetivo = limitar(0.4 + Math.random() * (ARCO_ALTO - 0.6), 0.3, ARCO_ALTO - 0.15);
+
+    this.soltarPelota(j);
+    j.estado = 'pateando';
+    j.patada = 0.3;
+
+    this.pelota.vx = Math.cos(angulo) * fuerza;
+    this.pelota.vz = Math.sin(angulo) * fuerza;
+    this.pelota.vy = (alturaObjetivo - RADIO_PELOTA + 0.5 * GRAVEDAD * vuelo * vuelo) / vuelo;
+
+    if (j.bando === 'usuario') this.remates.usuario += 1;
+    else this.remates.rival += 1;
+  }
+
+  private soltarPelota(j: JugadorPartido): void {
+    this.pelota.duenoId = null;
+    this.pelota.ultimoToqueId = j.id;
+    this.pelota.bloqueoPosesion = 0.12;
+    j.bloqueo = 0.15;
+  }
+
+  private detenerPelota(): void {
+    this.pelota.vx = 0;
+    this.pelota.vy = 0;
+    this.pelota.vz = 0;
+  }
+
+  /**
+   * Disputa cuerpo a cuerpo. Es lenta a proposito: sacarla es sobre todo cosa
+   * de la barrida y de la presion, no de una moneda que se tira cada cuadro.
+   */
+  private resolverDisputa(dt: number): void {
+    const dueno = this.porId(this.pelota.duenoId);
+    if (!dueno) return;
+
+    for (const rival of this.jugadores) {
+      if (rival.bando === dueno.bando || rival.bloqueo > 0 || rival.estado !== 'normal') continue;
+      if (distancia2(rival.x, rival.z, dueno.x, dueno.z) > RADIO_JUGADOR * 2 + 0.5) continue;
+
+      const probabilidad = dt * 0.85 * (0.35 + rival.attrs.quite / 110) * (1 - dueno.attrs.regate / 160);
+      if (Math.random() > probabilidad) continue;
+
+      this.pelota.duenoId = null;
+      this.pelota.ultimoToqueId = rival.id;
+      const angulo = Math.atan2(this.pelota.z - dueno.z, this.pelota.x - dueno.x) + (Math.random() - 0.5);
+      this.pelota.vx = Math.cos(angulo) * 5;
+      this.pelota.vz = Math.sin(angulo) * 5;
+      this.pelota.bloqueoPosesion = 0.2;
+      dueno.bloqueo = 0.7;
+      return;
+    }
+  }
+
+  // ----------------------------------------------------------------- pelota
+
+  private pegarPelotaAlDueno(): void {
+    const dueno = this.porId(this.pelota.duenoId);
+    if (!dueno) return;
+    const separacion = RADIO_JUGADOR + RADIO_PELOTA + 0.25;
+    this.pelota.x = limitar(dueno.x + Math.cos(dueno.rumbo) * separacion, -LARGO / 2, LARGO / 2);
+    this.pelota.z = limitar(dueno.z + Math.sin(dueno.rumbo) * separacion, -ANCHO / 2, ANCHO / 2);
+    this.pelota.y = RADIO_PELOTA;
+    this.detenerPelota();
+  }
+
+  private moverPelota(dt: number): void {
+    this.pelota.bloqueoPosesion = Math.max(0, this.pelota.bloqueoPosesion - dt);
+
+    if (this.pelota.duenoId) {
+      this.vueloDeLaPelota = 0;
+      this.pegarPelotaAlDueno();
+      this.pelota.giro += Math.hypot(this.porId(this.pelota.duenoId)!.vx, this.porId(this.pelota.duenoId)!.vz) * dt;
+      return;
+    }
+
+    const velocidad = Math.hypot(this.pelota.vx, this.pelota.vz);
+    this.vueloDeLaPelota = velocidad > 8 ? this.vueloDeLaPelota + dt : 0;
+    const destinoX = this.pelota.x + this.pelota.vx * dt;
+    const destinoZ = this.pelota.z + this.pelota.vz * dt;
+    const destinoY = this.pelota.y + this.pelota.vy * dt;
+
+    if (velocidad > 4) {
+      const choque = this.buscarInterceptor(destinoX, destinoZ, Math.min(this.pelota.y, destinoY));
+      if (choque) {
+        this.resolverInterceptacion(choque.jugador, choque.x, choque.z, velocidad);
+        return;
+      }
+    }
+
+    this.pelota.x = destinoX;
+    this.pelota.z = destinoZ;
+    this.pelota.y = destinoY;
+    this.pelota.vy -= GRAVEDAD * dt;
+
+    if (this.pelota.y <= RADIO_PELOTA) {
+      this.pelota.y = RADIO_PELOTA;
+      if (this.pelota.vy < -0.5) {
+        this.pelota.vy = -this.pelota.vy * REBOTE;
+        this.pelota.vx *= 0.82;
+        this.pelota.vz *= 0.82;
+      } else {
+        this.pelota.vy = 0;
+      }
+      const roce = Math.pow(1 - ROCE_PISO, dt);
+      this.pelota.vx *= roce;
+      this.pelota.vz *= roce;
+    } else {
+      const roce = Math.pow(1 - ROCE_AIRE, dt);
+      this.pelota.vx *= roce;
+      this.pelota.vz *= roce;
+    }
+
+    this.pelota.giro += velocidad * dt;
+    if (Math.hypot(this.pelota.vx, this.pelota.vz) < 0.3 && this.pelota.y <= RADIO_PELOTA) {
+      this.pelota.vx = 0;
+      this.pelota.vz = 0;
+    }
+
+    this.intentarTomarPelota();
+  }
+
+  /** Primer jugador cuyo cuerpo cruza el tramo que recorrio la pelota. */
+  private buscarInterceptor(
+    destinoX: number,
+    destinoZ: number,
+    alturaMinima: number,
+  ): { jugador: JugadorPartido; x: number; z: number } | null {
+    const x0 = this.pelota.x;
+    const z0 = this.pelota.z;
+    const dx = destinoX - x0;
+    const dz = destinoZ - z0;
+    const largo2 = dx * dx + dz * dz;
+    if (largo2 === 0) return null;
+
+    let mejor: { jugador: JugadorPartido; x: number; z: number; t: number } | null = null;
+
+    for (const j of this.jugadores) {
+      if (j.bloqueo > 0 || j.estado === 'caido') continue;
+      const alcance = j.esArquero ? ALCANCE_ALTO_ARQUERO : ALCANCE_ALTO;
+      if (alturaMinima > alcance) continue;
+
+      const radio = RADIO_JUGADOR + RADIO_PELOTA + (j.esArquero ? 0.45 : j.estado === 'barrida' ? 0.5 : 0.1);
+      const t = limitar(((j.x - x0) * dx + (j.z - z0) * dz) / largo2, 0, 1);
+      const px = x0 + dx * t;
+      const pz = z0 + dz * t;
+      if (distancia2(px, pz, j.x, j.z) > radio) continue;
+      if (!mejor || t < mejor.t) mejor = { jugador: j, x: px, z: pz, t };
+    }
+
+    return mejor ? { jugador: mejor.jugador, x: mejor.x, z: mejor.z } : null;
+  }
+
+  private resolverInterceptacion(j: JugadorPartido, x: number, z: number, velocidad: number): void {
+    this.pelota.x = x;
+    this.pelota.z = z;
+
+    if (j.esArquero) {
+      const atajada = limitar(0.46 + j.attrs.arquero / 140 - velocidad / 62, 0.2, 0.92);
+      if (Math.random() < atajada) {
+        this.pelota.y = RADIO_PELOTA;
+        this.detenerPelota();
+        this.pelota.duenoId = j.id;
+        this.pelota.ultimoToqueId = j.id;
+        this.tiempoArqueroConPelota = 0;
+        return;
+      }
+      // Manotazo: la saca del camino del arco.
+      const angulo = Math.atan2(z, x - this.arcoPropioDe(j.bando)) + (Math.random() - 0.5) * 0.9;
+      this.pelota.vx = Math.cos(angulo) * velocidad * 0.45;
+      this.pelota.vz = Math.sin(angulo) * velocidad * 0.45;
+      this.pelota.vy = 2;
+      this.pelota.ultimoToqueId = j.id;
+      this.pelota.bloqueoPosesion = 0.25;
+      j.bloqueo = 0.2;
+      return;
+    }
+
+    const control = limitar(0.25 + j.attrs.regate / 130 - velocidad / 45, 0.06, 0.88);
+    if (Math.random() < control && this.pelota.y < 1.4) {
+      this.pelota.y = RADIO_PELOTA;
+      this.detenerPelota();
+      this.pelota.duenoId = j.id;
+      this.pelota.ultimoToqueId = j.id;
+      return;
+    }
+
+    const angulo = Math.atan2(this.pelota.vz, this.pelota.vx) + (Math.random() - 0.5) * 1.3;
+    this.pelota.vx = Math.cos(angulo) * velocidad * 0.35;
+    this.pelota.vz = Math.sin(angulo) * velocidad * 0.35;
+    this.pelota.ultimoToqueId = j.id;
+    this.pelota.bloqueoPosesion = 0.2;
+    j.bloqueo = 0.18;
+  }
+
+  private intentarTomarPelota(): void {
+    if (this.pelota.duenoId || this.pelota.bloqueoPosesion > 0) return;
+    if (this.pelota.y > ALCANCE_ALTO) return;
+
+    let mejor: JugadorPartido | null = null;
+    let mejorDistancia = Infinity;
+    for (const j of this.jugadores) {
+      if (j.bloqueo > 0 || j.estado === 'caido') continue;
+      const d = distancia2(j.x, j.z, this.pelota.x, this.pelota.z);
+      if (d < RADIO_JUGADOR + RADIO_PELOTA + 0.35 && d < mejorDistancia) {
+        mejorDistancia = d;
+        mejor = j;
+      }
+    }
+    if (!mejor) return;
+
+    const velocidad = Math.hypot(this.pelota.vx, this.pelota.vz);
+    const control = mejor.esArquero ? mejor.attrs.arquero : mejor.attrs.regate;
+    if (Math.random() > 0.45 + control / 150 - velocidad / 55) {
+      this.pelota.vx *= 0.4;
+      this.pelota.vz *= 0.4;
+      this.pelota.bloqueoPosesion = 0.16;
+      mejor.bloqueo = 0.18;
+      return;
+    }
+
+    this.pelota.y = RADIO_PELOTA;
+    this.detenerPelota();
+    this.pelota.duenoId = mejor.id;
+    this.pelota.ultimoToqueId = mejor.id;
+    if (mejor.esArquero) this.tiempoArqueroConPelota = 0;
+  }
+
+  private revisarArqueroConPelota(dt: number): void {
+    const dueno = this.porId(this.pelota.duenoId);
+    if (!dueno || !dueno.esArquero) {
+      this.tiempoArqueroConPelota = 0;
+      return;
+    }
+    this.tiempoArqueroConPelota += dt;
+
+    // Si el arquero lo maneja el usuario le doy tiempo para que la juegue el,
+    // pero igual la saca sola: si no, el partido se queda congelado.
+    const loJuegaElUsuario = !this.iaTotal && dueno.bando === 'usuario' && this.controladoId === dueno.id;
+    if (this.tiempoArqueroConPelota < (loJuegaElUsuario ? 6 : 1.1)) return;
+    this.tiempoArqueroConPelota = 0;
+    this.pasar(dueno, dueno.bando === 'usuario' ? 1 : -1, 0, true);
+  }
+
+  // ------------------------------------------------------- limites y reinicios
+
+  private revisarLimites(): void {
+    const { x, z, y } = this.pelota;
+
+    if (Math.abs(x) >= LARGO / 2 && dentroDelArco(z) && y < ARCO_ALTO && this.pelota.duenoId === null) {
+      this.anotar(x > 0 ? 'usuario' : 'rival');
+      return;
+    }
+
+    if (Math.abs(z) > ANCHO / 2) {
+      const ultimo = this.porId(this.pelota.ultimoToqueId);
+      const saca: Bando = ultimo?.bando === 'usuario' ? 'rival' : 'usuario';
+      const zLinea = Math.sign(z) * (ANCHO / 2 - 0.3);
+      this.pelota.x = limitar(x, -LARGO / 2 + 2, LARGO / 2 - 2);
+      this.pelota.z = zLinea;
+      this.fase = 'lateral';
+      this.darLaPelotaA(saca, this.pelota.x, zLinea, null);
+      this.anunciar('LATERAL', `Saca ${this.equipoDe(saca).abrev}`, 1.1);
+      return;
+    }
+
+    if (Math.abs(x) > LARGO / 2) {
+      const defiende: Bando = x > 0 ? 'rival' : 'usuario';
+      const ultimo = this.porId(this.pelota.ultimoToqueId);
+      const fueCorner = ultimo !== null && ultimo.bando !== defiende;
+
+      if (fueCorner) {
+        const esquinaX = Math.sign(x) * (LARGO / 2 - 0.6);
+        const esquinaZ = Math.sign(z || 1) * (ANCHO / 2 - 0.6);
+        this.fase = 'corner';
+        const ataca: Bando = defiende === 'usuario' ? 'rival' : 'usuario';
+        this.darLaPelotaA(ataca, esquinaX, esquinaZ, null);
+        this.anunciar('CORNER', `Para ${this.equipoDe(ataca).abrev}`, 1.3);
+      } else {
+        const arquero = this.jugadores.find((j) => j.bando === defiende && j.esArquero);
+        this.fase = 'saque_arco';
+        const x6 = Math.sign(x) * (LARGO / 2 - 5.5);
+        this.darLaPelotaA(defiende, x6, limitar(z, -8, 8), arquero?.id ?? null);
+        this.anunciar('SAQUE DE ARCO', `Para ${this.equipoDe(defiende).abrev}`, 1.2);
+      }
+    }
+  }
+
+  /**
+   * Deja la pelota quieta en un punto y se la da a alguien del bando que saca.
+   * Nadie se teletransporta al medio del juego: el que saca camina hasta ahi
+   * durante la pausa y recien despues arranca la jugada.
+   */
+  private darLaPelotaA(bando: Bando, x: number, z: number, jugadorId: string | null): void {
+    this.pelota.x = x;
+    this.pelota.z = z;
+    this.pelota.y = RADIO_PELOTA;
+    this.detenerPelota();
+    this.pelota.bloqueoPosesion = 0;
+
+    let ejecutor = jugadorId ? this.porId(jugadorId) : null;
+    if (!ejecutor) {
+      ejecutor =
+        this.jugadores
+          .filter((j) => j.bando === bando && !j.esArquero && j.estado === 'normal')
+          .sort((a, b) => distancia2(a.x, a.z, x, z) - distancia2(b.x, b.z, x, z))[0] ?? null;
+    }
+    if (!ejecutor) return;
+
+    ejecutor.x = x - Math.sign(x || 1) * 0.6;
+    ejecutor.z = z;
+    ejecutor.vx = 0;
+    ejecutor.vz = 0;
+    ejecutor.estado = 'normal';
+    ejecutor.bloqueo = 0;
+    ejecutor.rumbo = bando === 'usuario' ? 0 : Math.PI;
+
+    this.pelota.duenoId = ejecutor.id;
+    this.pelota.ultimoToqueId = ejecutor.id;
+    if (bando === 'usuario') this.controladoId = ejecutor.id;
+  }
+
+  private sacarDesdeElArco(): void {
+    const dueno = this.porId(this.pelota.duenoId);
+    if (!dueno) return;
+    this.pasar(dueno, dueno.bando === 'usuario' ? 1 : -1, 0, true);
+  }
+
+  private anotar(bando: Bando): void {
+    const autor = this.porId(this.pelota.ultimoToqueId);
+    const suyo = autor && autor.bando === bando;
+
+    if (bando === 'usuario') {
+      this.golesUsuario += 1;
+      if (suyo && autor) this.goleadoresUsuario.push(autor.id);
+    } else {
+      this.golesRival += 1;
+      if (suyo && autor) this.goleadoresRival.push(autor.id);
+    }
+
+    this.fase = 'gol';
+    this.prepararSaqueInicial(bando === 'usuario' ? 'rival' : 'usuario');
+    this.anunciar('¡GOL!', suyo && autor ? autor.nombre : 'En contra', 2.2);
+  }
+
+  private prepararSaqueInicial(bando: Bando): void {
+    this.saqueDe = bando;
+    for (const j of this.jugadores) {
+      const punto = this.aMundo(j.bando, j.baseAncho, j.baseLargo);
+      j.x = punto.x;
+      j.z = punto.z;
+      j.vx = 0;
+      j.vz = 0;
+      j.estado = 'normal';
+      j.temporizador = 0;
+      j.bloqueo = 0;
+      j.rumbo = j.bando === 'usuario' ? 0 : Math.PI;
+    }
+
+    this.pelota.x = 0;
+    this.pelota.z = 0;
+    this.pelota.y = RADIO_PELOTA;
+    this.detenerPelota();
+    this.pelota.bloqueoPosesion = 0;
+
+    const sacador = this.jugadores
+      .filter((j) => j.bando === bando && !j.esArquero)
+      .sort((a, b) => distancia2(a.x, a.z, 0, 0) - distancia2(b.x, b.z, 0, 0))[0];
+
+    if (sacador) {
+      sacador.x = bando === 'usuario' ? -1.2 : 1.2;
+      sacador.z = 0;
+      this.pelota.duenoId = sacador.id;
+      this.pelota.ultimoToqueId = sacador.id;
+      if (bando === 'usuario') this.controladoId = sacador.id;
+    }
+  }
+
+  // ---------------------------------------------------------------- salida
+
+  resultado(): ResultadoPartido {
+    const total = Math.max(0.001, this.posesion.usuario + this.posesion.rival);
+    return {
+      golesUsuario: this.golesUsuario,
+      golesRival: this.golesRival,
+      goleadoresUsuario: [...this.goleadoresUsuario],
+      goleadoresRival: [...this.goleadoresRival],
+      remates: { ...this.remates },
+      posesion: {
+        usuario: Math.round((this.posesion.usuario / total) * 100),
+        rival: Math.round((this.posesion.rival / total) * 100),
+      },
+    };
+  }
+
+  /** Para el render: si la pelota esta dentro del area, la camara se acerca. */
+  get pelotaEnArea(): boolean {
+    return Math.abs(this.pelota.x) > LARGO / 2 - AREA_LARGO && Math.abs(this.pelota.z) < AREA_ANCHO / 2;
+  }
+}
+
+/** Interpola un angulo hacia otro por el camino corto. */
+function anguloHacia(actual: number, objetivo: number, cantidad: number): number {
+  let diferencia = objetivo - actual;
+  while (diferencia > Math.PI) diferencia -= Math.PI * 2;
+  while (diferencia < -Math.PI) diferencia += Math.PI * 2;
+  return actual + diferencia * Math.min(1, cantidad);
+}

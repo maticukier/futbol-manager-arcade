@@ -1,73 +1,107 @@
-import Phaser from 'phaser';
-import { EscenaPartido, type DatosEscenaPartido } from './match/EscenaPartido';
+import { MotorPartido } from './match/motor';
+import { Escena3D } from './match/escena3d';
+import { InterfazPartido } from './match/interfaz';
 import type { ConfiguracionPartido, ResultadoPartido } from './match/entidades';
 
 /**
- * Arranca Phaser en el contenedor del partido y devuelve el resultado.
- * Resuelve en null si el usuario abandona antes del final.
+ * Arma el partido (motor, render 3D e interfaz), lo corre y devuelve el
+ * resultado. Resuelve en null si el usuario abandona antes del final.
  */
-/**
- * Alto de las franjas que el sistema se reserva (notch arriba, barra de gestos
- * abajo). Phaser dibuja a pantalla completa, asi que el HUD tiene que esquivarlas.
- */
-function areaSegura(): { arriba: number; abajo: number } {
-  const sonda = document.createElement('div');
-  sonda.style.cssText =
-    'position:fixed;top:0;left:0;width:0;visibility:hidden;' +
-    'padding-top:env(safe-area-inset-top);padding-bottom:env(safe-area-inset-bottom)';
-  document.body.appendChild(sonda);
-  const estilo = getComputedStyle(sonda);
-  const arriba = parseFloat(estilo.paddingTop) || 0;
-  const abajo = parseFloat(estilo.paddingBottom) || 0;
-  sonda.remove();
-  return { arriba, abajo };
-}
-
 export function jugarPartidoArcade(
   contenedor: HTMLElement,
   config: ConfiguracionPartido,
 ): Promise<ResultadoPartido | null> {
   return new Promise((resolver) => {
-    let juego: Phaser.Game | null = null;
-    let terminado = false;
+    const motor = new MotorPartido(config);
+    const escena = new Escena3D(contenedor, motor);
+
+    let cerrado = false;
+    let pausado = false;
+    let cuadro = 0;
+    let ultimoInstante = performance.now();
+    let golesPrevios = 0;
+
+    const interfaz = new InterfazPartido(contenedor, motor, () => cerrar(null));
 
     const cerrar = (resultado: ResultadoPartido | null) => {
-      if (terminado) return;
-      terminado = true;
-      // Doy un frame para que Phaser termine el update actual antes de destruir.
-      setTimeout(() => {
-        juego?.destroy(true);
-        juego = null;
-        Reflect.deleteProperty(window, 'partido');
-        contenedor.innerHTML = '';
-        resolver(resultado);
-      }, 0);
+      if (cerrado) return;
+      cerrado = true;
+      cancelAnimationFrame(cuadro);
+      window.removeEventListener('resize', alRedimensionar);
+      window.removeEventListener('orientationchange', alRedimensionar);
+      interfaz.destruir();
+      escena.destruir();
+      contenedor.innerHTML = '';
+      Reflect.deleteProperty(window, 'partido');
+      salirDePantallaCompleta();
+      resolver(resultado);
     };
 
-    const datos: DatosEscenaPartido = {
-      config,
-      areaSegura: areaSegura(),
-      alTerminar: (resultado) => cerrar(resultado),
-      alSalir: () => cerrar(null),
+    const alRedimensionar = () => escena.redimensionar();
+    window.addEventListener('resize', alRedimensionar);
+    window.addEventListener('orientationchange', alRedimensionar);
+
+    const bucle = (instante: number) => {
+      cuadro = requestAnimationFrame(bucle);
+      // Con pestanas en segundo plano el delta se dispara: lo recorto para que
+      // la fisica no pegue saltos.
+      const dt = Math.min(0.05, (instante - ultimoInstante) / 1000);
+      ultimoInstante = instante;
+
+      const entrada = interfaz.leer();
+      if (!pausado) motor.paso(dt, entrada);
+
+      const goles = motor.golesUsuario + motor.golesRival;
+      if (goles !== golesPrevios) {
+        golesPrevios = goles;
+        escena.sacudir();
+      }
+
+      escena.actualizar(dt);
+      interfaz.actualizar();
+
+      if (motor.terminado) cerrar(motor.resultado());
     };
 
-    juego = new Phaser.Game({
-      type: Phaser.AUTO,
-      parent: contenedor,
-      backgroundColor: '#0b1220',
-      scale: {
-        mode: Phaser.Scale.RESIZE,
-        autoCenter: Phaser.Scale.CENTER_BOTH,
-        width: contenedor.clientWidth || window.innerWidth,
-        height: contenedor.clientHeight || window.innerHeight,
-      },
-      render: { antialias: true, powerPreference: 'high-performance' },
-      scene: [EscenaPartido],
-      audio: { noAudio: true },
-    });
+    pedirApaisado(contenedor);
+    escena.redimensionar();
+    cuadro = requestAnimationFrame(bucle);
 
-    juego.scene.start(EscenaPartido.CLAVE, datos);
     // Referencia para depurar desde la consola del navegador.
-    Object.assign(window, { partido: juego });
+    Object.assign(window, {
+      partido: {
+        motor,
+        escena,
+        interfaz,
+        pausar: (valor = true) => {
+          pausado = valor;
+        },
+      },
+    });
   });
+}
+
+/** Intenta poner el telefono en horizontal. Si el navegador no deja, no pasa nada. */
+function pedirApaisado(contenedor: HTMLElement): void {
+  const pantalla = screen.orientation as ScreenOrientation & { lock?: (o: string) => Promise<void> };
+  const bloquear = () => pantalla?.lock?.('landscape').catch(() => undefined);
+
+  if (!document.fullscreenElement && contenedor.requestFullscreen) {
+    contenedor
+      .requestFullscreen()
+      .then(bloquear)
+      .catch(() => bloquear());
+    return;
+  }
+  bloquear();
+}
+
+function salirDePantallaCompleta(): void {
+  const pantalla = screen.orientation as ScreenOrientation & { unlock?: () => void };
+  try {
+    pantalla?.unlock?.();
+  } catch {
+    // Algunos navegadores no lo soportan; no es grave.
+  }
+  if (document.fullscreenElement) void document.exitFullscreen().catch(() => undefined);
 }

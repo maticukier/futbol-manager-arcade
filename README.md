@@ -2,7 +2,7 @@
 
 Juego de futbol para celular que mezcla tres cosas que normalmente vienen separadas:
 
-- **Partido arcade** (estilo World Soccer Champs): jugas vos, con joystick virtual, pase y tiro.
+- **Partido arcade en 3D** (estilo Dream League): jugas vos, apaisado, con joystick virtual y tres botones que cambian de funcion segun tengas o no la pelota.
 - **Direccion tecnica** (estilo Football Manager): once titular, formacion, actitud del equipo, lesiones, moral y mercado de pases.
 - **Presidencia del club** (estilo Football Chairman): caja, precio de la entrada, socios, estadio, cantera, sponsors y un directorio que te puede echar.
 
@@ -60,14 +60,27 @@ npm run preview    # sirve dist/ para probar el build
 
 ## Controles del partido
 
-| Accion | Celular | Teclado |
-| --- | --- | --- |
-| Mover | Joystick (mitad izquierda de la pantalla) | W A S D |
-| Pase | Boton verde | J |
-| Tiro | Boton rojo (mantener carga la potencia) | K (mantener) |
+El partido se juega con el telefono acostado. Los tres botones cambian de
+funcion segun quien tenga la pelota, como en Dream League:
 
-Manejas siempre al jugador mas cercano a la pelota; el cambio es automatico.
-Tu equipo ataca siempre hacia arriba, tambien en el segundo tiempo.
+| Boton | Con la pelota | Sin la pelota | Teclado |
+| --- | --- | --- | --- |
+| Verde | Pase al ras | Cambiar de jugador | J |
+| Rojo | Tiro (mantener carga la potencia) | Barrida | K |
+| Azul | Pase bombeado y centros | Presion en bloque | L |
+
+Para moverte, joystick en la mitad izquierda de la pantalla, o WASD en la compu.
+Manejas al jugador mas cercano a la pelota y el cambio es automatico cuando la
+perdes; con el boton verde elegis vos a quien manejar.
+
+Tu equipo ataca siempre hacia la derecha, tambien en el segundo tiempo.
+
+### Sobre la barrida
+
+Sacar la pelota es una decision, no una moneda: la disputa cuerpo a cuerpo es
+lenta a proposito y la forma real de recuperarla es tirarse. Si llegas a la
+pelota la despejas; si llegas al jugador es falta y tiro libre para el rival.
+Despues de barrerte quedas un rato en el piso, asi que errarle se paga.
 
 ## Mobile (Capacitor)
 
@@ -93,15 +106,21 @@ src/
     finanzas.ts   Taquilla, socios, sponsors, estadio y cantera
     mercado.ts    Compra y venta de jugadores
     juego.ts      Estado global, avance de fecha y cierre de temporada
-  game/         Motor del partido arcade (Phaser 3)
-    match/EscenaPartido.ts  11 vs 11, IA, arqueros, goles, reloj
-    match/controles.ts      Joystick virtual y botones
+  game/         Partido arcade en 3D
+    match/motor.ts      Reglas, fisica e IA. No sabe que existe el 3D
+    match/escena3d.ts   Render con Three.js: cancha, arcos, tribunas, camara
+    match/jugador3d.ts  Jugadores armados con primitivas y animados por codigo
+    match/interfaz.ts   Marcador, avisos, joystick y botones, en DOM
+    match/mundo.ts      Medidas de la cancha, en metros
   ui/           Pantallas de gestion en DOM (sin framework)
 ```
 
-La separacion importante es `sim/` contra `game/`: la simulacion no sabe que existe Phaser,
-asi que las fechas que no jugas se resuelven sin abrir el motor grafico, y Phaser se carga
-recien cuando arranca un partido (el bundle inicial queda en unos 56 kB).
+Hay dos separaciones que importan. La primera es `sim/` contra `game/`: la
+simulacion no sabe que existe el 3D, asi que las fechas que no jugas se resuelven
+sin abrir el motor grafico, y Three.js se carga recien cuando arranca un partido
+(el bundle inicial queda en unos 56 kB). La segunda es, dentro del partido,
+`motor.ts` contra `escena3d.ts`: el motor corre sin pantalla, lo que permite
+simular partidos enteros en milisegundos para medir el balance.
 
 ## Decisiones de diseno
 
@@ -110,17 +129,20 @@ recien cuando arranca un partido (el bundle inicial queda en unos 56 kB).
 - **Las decisiones de presidente tienen costo.** Subir la entrada da plata ya y hace perder
   socios despues; ampliar el estadio sube el mantenimiento semanal.
 - **Todo con semilla.** `Rng` hace que una partida sea reproducible, util para depurar.
-- **Sin assets.** La cancha y los jugadores se dibujan con primitivas: arranca al instante
-  y no hay que mantener sprites todavia.
+- **Sin assets.** Cancha, arcos, tribunas y jugadores se arman con primitivas y
+  texturas dibujadas en un lienzo. No hay modelos que descargar ni licencias que
+  mirar, y el paquete del partido queda en unos 130 kB comprimidos.
+- **Sombras de mancha.** En vez de un mapa de sombras, cada jugador lleva una
+  mancha difusa abajo: en un telefono rinde mucho mejor y se lee igual.
 
 ## Roadmap
 
 - [ ] Copa nacional en paralelo a la liga
 - [ ] Ascensos y descensos con segunda division
-- [ ] Cambios y tarjetas durante el partido arcade
+- [ ] Cambios y tarjetas durante el partido
+- [ ] Barrera y remate en los tiros libres
 - [ ] Entrenamiento semanal que suba atributos concretos
 - [ ] Negociacion de contratos y jugadores que piden irse
-- [ ] Sprites y animacion de los jugadores
 - [ ] Sonido y musica
 
 ## Licencia
