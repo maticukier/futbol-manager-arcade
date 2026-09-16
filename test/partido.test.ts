@@ -48,6 +48,9 @@ describe('reglas del partido', () => {
     motor.fase = 'jugando';
     motor.aviso = null;
     motor.pelota.duenoId = null;
+    // Al arquero lo aparto: acá se prueba la regla del gol, no si la ataja.
+    const arquero = motor.jugadores.find((j) => j.bando === 'rival' && j.esArquero)!;
+    Object.assign(arquero, { x: LARGO / 2 - 1, z: 20, vx: 0, vz: 0 });
     Object.assign(motor.pelota, { x: LARGO / 2 - 2, z: 0, y: 0.5, vx: 30, vy: 0, vz: 0 });
 
     for (let i = 0; i < 20 && motor.golesUsuario === 0; i++) motor.paso(PASO, ENTRADA_VACIA);
@@ -59,12 +62,23 @@ describe('reglas del partido', () => {
     const atacante = motor.jugadores.find((j) => j.bando === 'usuario' && !j.esArquero)!;
     const defensor = motor.jugadores.find((j) => j.bando === 'rival' && !j.esArquero)!;
 
-    // Barrida a toda velocidad por atras: roja segura.
+    // Al resto del rival lo saco de atras para que el infractor sea el ultimo
+    // hombre: derribar ahi al que se va solo es la roja clasica.
+    for (const j of motor.jugadores) {
+      if (j.bando !== 'rival' || j.esArquero || j === defensor) continue;
+      j.x = -20;
+    }
+
+    // El criterio del arbitro tiene su parte de azar; la consecuencia de una
+    // roja no. Repito la falta hasta que la saque.
     motor.fase = 'jugando';
-    Object.assign(atacante, { x: 10, z: 2, rumbo: 0, estado: 'normal', bloqueo: 0 });
-    Object.assign(defensor, { x: 9.2, z: 2, rumbo: 0, estado: 'barrida', temporizador: 0.4, vx: 14, vz: 0, bloqueo: 0 });
-    Object.assign(motor.pelota, { x: 10.92, z: 2, y: 0.12, vx: 0, vy: 0, vz: 0, duenoId: atacante.id, ultimoToqueId: atacante.id });
-    motor.paso(PASO, ENTRADA_VACIA);
+    for (let intento = 0; intento < 200 && !defensor.expulsado; intento++) {
+      Object.assign(atacante, { x: 30, z: 2, rumbo: 0, estado: 'normal', bloqueo: 0, temporizador: 0 });
+      Object.assign(defensor, { x: 29.2, z: 2, rumbo: 0, estado: 'barrida', temporizador: 0.4, vx: 14, vz: 0, bloqueo: 0 });
+      Object.assign(motor.pelota, { x: 30.92, z: 2, y: 0.12, vx: 0, vy: 0, vz: 0, duenoId: atacante.id, ultimoToqueId: atacante.id });
+      motor.fase = 'jugando';
+      motor.paso(PASO, ENTRADA_VACIA);
+    }
 
     expect(defensor.expulsado).toBe(true);
     expect(motor.rojas.rival).toBe(1);
@@ -169,15 +183,17 @@ describe('reloj', () => {
     const { motor } = motorDePrueba(707);
     const marcas: number[] = [];
 
-    // Un tiempo dura noventa segundos reales: voy midiendo el minuto.
-    for (let i = 0; i < 60 * 95; i++) {
+    // Un tiempo dura noventa segundos de juego, pero el reloj se para en cada
+    // falta: mido hasta que llegue el entretiempo, no hasta un numero de pasos.
+    const primerTiempo = () => motor.tiempoActual === 1;
+    for (let i = 0; i < 60 * 400 && primerTiempo(); i++) {
       motor.paso(PASO, ENTRADA_VACIA);
-      if (i % (60 * 10) === 0) marcas.push(motor.minuto);
+      if (i % (60 * 10) === 0 || !primerTiempo()) marcas.push(motor.minuto);
     }
 
     // El minuto tiene que crecer, no quedarse clavado en ninguno.
     expect(new Set(marcas).size).toBeGreaterThan(4);
-    expect(Math.max(...marcas)).toBeGreaterThan(40);
+    expect(Math.max(...marcas)).toBeGreaterThanOrEqual(45);
   });
 });
 
@@ -311,11 +327,17 @@ describe('marca y fisica del jugador', () => {
     motor.aviso = null;
 
     const solo = motor.jugadores.find((j) => j.bando === 'usuario' && !j.esArquero)!;
-    // Lo dejo lejos de todos para medir solo su inercia, sin empujones.
+    // Lo dejo lejos de todos para medir solo su inercia, sin empujones ni
+    // barridas. Al resto lo desparramo, no lo apilo: apilados se empujan entre
+    // ellos y salen disparados.
+    let fila = 0;
     for (const otro of motor.jugadores) {
       if (otro === solo) continue;
       otro.x = 40;
-      otro.z = 25;
+      otro.z = -25 + (fila % 21) * 2.5;
+      otro.vx = 0;
+      otro.vz = 0;
+      fila += 1;
     }
     Object.assign(motor.pelota, { x: 40, z: 25, y: 0.12, vx: 0, vy: 0, vz: 0, duenoId: null, ultimoToqueId: null });
     Object.assign(solo, { x: -20, z: 0, vx: 8, vz: 0 });
@@ -369,6 +391,34 @@ describe('balance del partido', () => {
     expect(rematesPorPartido).toBeLessThan(24);
     expect(conversion).toBeGreaterThan(0.1);
     expect(conversion).toBeLessThan(0.4);
+  });
+
+  it('un partido tiene faltas y tarjetas, y el arbitro no reparte rojas de mas', () => {
+    const estado = nuevaPartida(4, 24680);
+    const primera = estado.clubs.filter((c) => c.division === 1);
+    const partidos = 16;
+
+    const faltas: number[] = [];
+    const amarillas: number[] = [];
+    const rojas: number[] = [];
+
+    for (let i = 0; i < partidos; i++) {
+      const local = primera[i % primera.length];
+      const visitante = primera[(i + 3) % primera.length];
+      if (local.id === visitante.id) continue;
+
+      const { resultado, motor } = jugarPartidoCompleto(estado, local.id, visitante.id);
+      faltas.push(motor.faltas.usuario + motor.faltas.rival);
+      amarillas.push(resultado.amarillas.usuario + resultado.amarillas.rival);
+      rojas.push(resultado.rojas.usuario + resultado.rojas.rival);
+    }
+
+    // Sin esto la IA no se barre nunca y el partido termina sin una sola falta.
+    expect(promedio(faltas)).toBeGreaterThan(3);
+    expect(promedio(faltas)).toBeLessThan(18);
+    expect(promedio(amarillas)).toBeGreaterThan(0.5);
+    expect(promedio(amarillas)).toBeLessThan(6);
+    expect(promedio(rojas)).toBeLessThan(1);
   });
 
   it('el equipo mejor armado gana mas seguido que el peor', () => {

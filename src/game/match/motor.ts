@@ -47,6 +47,15 @@ const DISTANCIA_DE_MARCA = 2.1;
 /** Desde que distancia el atacante sin pelota empieza a despegarse del que lo sigue. */
 const DISTANCIA_DE_DESMARQUE = 7;
 
+/** Desde que distancia un defensor de la IA se anima a tirarse al piso. */
+const ALCANCE_DE_BARRIDA = 2.7;
+
+/** Grilla con la que se busca el mejor lugar para ofrecerse al que tiene la pelota. */
+const COLUMNAS_APOYO = 7;
+const FILAS_APOYO = 7;
+/** A que distancia del que tiene la pelota conviene ofrecerse. */
+const DISTANCIA_DE_APOYO = 17;
+
 /**
  * Motor del partido: reglas, fisica e inteligencia artificial.
  *
@@ -81,6 +90,7 @@ export class MotorPartido {
   golesRival = 0;
   controladoId: string | null = null;
 
+  readonly faltas = { usuario: 0, rival: 0 };
   readonly amarillas = { usuario: 0, rival: 0 };
   readonly rojas = { usuario: 0, rival: 0 };
   readonly cambiosUsados = { usuario: 0, rival: 0 };
@@ -112,6 +122,9 @@ export class MotorPartido {
   private ejecutorPenal: string | null = null;
   private temporizadorPenal = 0;
   private punteriaPenal = 0;
+  /** Adonde va el companero que se ofrece, y cuanto falta para recalcularlo. */
+  private apoyos: { punto: { x: number; z: number }; id: string }[] = [];
+  private esperaApoyo = 0;
 
   constructor(config: ConfiguracionPartido) {
     this.config = config;
@@ -342,6 +355,7 @@ export class MotorPartido {
     const bandoConPelota: Bando | null = dueno ? dueno.bando : null;
     const perseguidores = detenido ? new Set<string>() : this.elegirPerseguidores(bandoConPelota);
     if (!detenido) this.asignarMarcas(bandoConPelota);
+    if (!detenido) this.actualizarApoyo(dueno, dt);
 
     for (const j of this.jugadores) {
       if (j.expulsado) continue;
@@ -375,7 +389,14 @@ export class MotorPartido {
       }
 
       if (perseguidores.has(j.id)) {
+        if (dueno && dueno.bando !== j.bando && this.iaSeBarre(j, dueno, dt)) continue;
         this.irHacia(j, this.pelota.x, this.pelota.z, dt, 1);
+        continue;
+      }
+
+      const apoyo = detenido ? undefined : this.apoyos.find((a) => a.id === j.id);
+      if (apoyo) {
+        this.irHacia(j, apoyo.punto.x, apoyo.punto.z, dt, 1);
         continue;
       }
 
@@ -452,6 +473,84 @@ export class MotorPartido {
     }
   }
 
+  /**
+   * Busca el mejor lugar para ofrecerse al que tiene la pelota y manda ahi al
+   * companero mejor ubicado para llegar.
+   *
+   * Se puntea una grilla sobre el campo de ataque: vale que el pase llegue sin
+   * que lo corten, vale mas que desde ahi se pueda definir, y se premia la
+   * distancia justa, ni encima del que la tiene ni en la otra punta. Es la idea
+   * del Simple Soccer de Buckland, que es lo que separa un equipo que juega de
+   * uno que corre en linea recta.
+   */
+  private actualizarApoyo(dueno: JugadorPartido | null, dt: number): void {
+    this.esperaApoyo -= dt;
+    if (!dueno || dueno.esArquero) {
+      this.apoyos = [];
+      return;
+    }
+    if (this.esperaApoyo > 0 && this.apoyos.length > 0) return;
+    this.esperaApoyo = 0.25;
+
+    const direccion = dueno.bando === 'usuario' ? 1 : -1;
+    const desde = dueno.x - 6 * direccion;
+    const hasta = this.arcoRivalDe(dueno.bando) - 7 * direccion;
+
+    const puntos: { x: number; z: number; puntaje: number }[] = [];
+    for (let a = 0; a < COLUMNAS_APOYO; a++) {
+      const x = desde + ((hasta - desde) * a) / (COLUMNAS_APOYO - 1);
+      for (let b = 0; b < FILAS_APOYO; b++) {
+        const z = -28 + (56 * b) / (FILAS_APOYO - 1);
+        const d = Math.hypot(x - dueno.x, z - dueno.z);
+        if (d < 7 || d > 36) continue;
+
+        let puntaje = 1 - Math.abs(d - DISTANCIA_DE_APOYO) / DISTANCIA_DE_APOYO;
+        if (this.paseSeguro(dueno, x, z, limitar(d * 1.5, 9, 26))) puntaje += 2;
+        if (this.lineaLibreAlArco(x, z, dueno.bando)) puntaje += 1.6;
+        puntos.push({ x, z, puntaje });
+      }
+    }
+    puntos.sort((a, b) => b.puntaje - a.puntaje);
+
+    // Dos companeros se ofrecen, y en lugares distintos: con uno solo el que
+    // lleva la pelota nunca tiene alternativa.
+    const libres = this.activos(dueno.bando).filter((c) => c.id !== dueno.id && !c.esArquero);
+    const elegidos: { punto: { x: number; z: number }; id: string }[] = [];
+
+    for (const punto of puntos) {
+      if (elegidos.length >= 2 || libres.length === 0) break;
+      if (elegidos.some((e) => distancia2(e.punto.x, e.punto.z, punto.x, punto.z) < 14)) continue;
+
+      let mejor = 0;
+      for (let i = 1; i < libres.length; i++) {
+        if (distancia2(libres[i].x, libres[i].z, punto.x, punto.z) < distancia2(libres[mejor].x, libres[mejor].z, punto.x, punto.z)) mejor = i;
+      }
+      elegidos.push({ punto: { x: punto.x, z: punto.z }, id: libres[mejor].id });
+      libres.splice(mejor, 1);
+    }
+
+    this.apoyos = elegidos;
+  }
+
+  /** Si desde ese punto se puede patear al arco sin que haya un cuerpo en el medio. */
+  private lineaLibreAlArco(x: number, z: number, bando: Bando): boolean {
+    const arco = this.arcoRivalDe(bando);
+    const dx = arco - x;
+    const dz = -z;
+    const d = Math.hypot(dx, dz);
+    if (d > 30) return false;
+
+    const nx = dx / d;
+    const nz = dz / d;
+    for (const rival of this.jugadores) {
+      if (rival.bando === bando || rival.esArquero || rival.expulsado) continue;
+      const avance = (rival.x - x) * nx + (rival.z - z) * nz;
+      if (avance < 0.5 || avance > d) continue;
+      if (Math.abs((rival.x - x) * nz - (rival.z - z) * nx) < RADIO_JUGADOR + 0.8) return false;
+    }
+    return true;
+  }
+
   /** Puesto de reposo, corrido hacia la pelota y segun lo que pida la tactica. */
   private destinoDeFormacion(j: JugadorPartido, bandoConPelota: Bando | null): { x: number; z: number } {
     const tacticas = this.equipoDe(j.bando).tacticas;
@@ -462,8 +561,11 @@ export class MotorPartido {
     const mentalidad = tacticas.mentalidad / 100;
     const linea = tacticas.lineaDefensiva / 100;
 
-    const empuje = atacando ? 5 + mentalidad * 17 : -(4 + (1 - linea) * 14);
-    const seguirPelota = (this.pelota.x - base.x) * 0.2;
+    const empuje = atacando ? 8 + mentalidad * 22 : -(4 + (1 - linea) * 14);
+    // Atacando el bloque entero sube detras de la pelota; defendiendo se
+    // mantiene mas suelto. Antes seguia la pelota igual en los dos casos y el
+    // equipo quedaba siempre partido al medio.
+    const seguirPelota = (this.pelota.x - base.x) * (atacando ? 0.34 : 0.2);
 
     const puesto = {
       x: limitar(base.x + empuje * direccion + seguirPelota, -LARGO / 2 + 2, LARGO / 2 - 2),
@@ -593,17 +695,32 @@ export class MotorPartido {
     const presionado = rival ? distancia2(j.x, j.z, rival.x, rival.z) < 3.2 : false;
 
     if (distanciaArco < 32 && Math.abs(j.z) < 24) {
-      const ganas = 0.55 + j.attrs.tiro / 220 - distanciaArco / 90;
-      if (Math.random() < ganas * dt * 1.85) {
+      // Las ganas de patear caen rapido con la distancia: de treinta metros no
+      // se patea en cada jugada. Sin esto el partido es un festival de tiros
+      // desde afuera que no entran nunca.
+      const cerca = limitar(1 - distanciaArco / 32, 0, 1);
+      const ganas = (0.15 + j.attrs.tiro / 300) * cerca * cerca * 7;
+      if (Math.random() < ganas * dt) {
         this.patear(j, 0.85);
         return;
       }
     }
 
-    if (presionado && Math.random() < dt * 2.2) {
-      const direccion = j.bando === 'usuario' ? 1 : -1;
-      this.pasar(j, direccion, 0, Math.random() < 0.25);
-      return;
+    // Pasar no es solo salir del apuro. Si hay un companero mejor parado se la
+    // da igual: sin esto son veintidos tipos corriendo en linea recta y el
+    // partido no se parece a un partido.
+    const direccion = j.bando === 'usuario' ? 1 : -1;
+    const companero = this.elegirDestino(j, direccion, 0, false);
+    if (companero) {
+      const gana = (companero.x - j.x) * direccion;
+      // Lejos del arco se juega; cerca se define. Sin esto el delantero busca
+      // el pase perfecto dentro del area y el equipo remata siempre de lejos.
+      const ganas =
+        (presionado ? 2.6 : gana > 7 ? 1.3 : 0.45) * limitar(distanciaArco / 28, 0.2, 1);
+      if (Math.random() < ganas * dt) {
+        this.pasar(j, direccion, 0, gana > 22 && Math.random() < 0.4, companero);
+        return;
+      }
     }
 
     // Encarar no es correr derecho contra el defensor: se busca su lado flojo.
@@ -614,7 +731,10 @@ export class MotorPartido {
     if (rival && presionado) {
       objetivoZ += (j.z - rival.z >= 0 ? 1 : -1) * 6 * abrirse;
     }
-    this.irHacia(j, arco, limitar(objetivoZ, -ANCHO / 2 + 3, ANCHO / 2 - 3), dt, 0.98);
+    // Con cuanta soltura conduce depende del regate: un buen gambeteador se va
+    // del que lo persigue, uno malo lo lleva encima. Antes todos conducian igual.
+    const conduccion = 0.92 + (j.attrs.regate / 100) * 0.18;
+    this.irHacia(j, arco, limitar(objetivoZ, -ANCHO / 2 + 3, ANCHO / 2 - 3), dt, conduccion);
   }
 
   private rivalMasCercano(j: JugadorPartido): JugadorPartido | null {
@@ -736,6 +856,12 @@ export class MotorPartido {
     const enCancha = this.activos();
     const minimo = RADIO_JUGADOR * 2;
 
+    // Dos pasadas: con una sola, en un amontonamiento de tres o mas, resolver
+    // un par vuelve a encimar otro y quedan cuerpos superpuestos.
+    for (let vuelta = 0; vuelta < 2; vuelta++) this.separarUnaVez(enCancha, minimo);
+  }
+
+  private separarUnaVez(enCancha: JugadorPartido[], minimo: number): void {
     for (let i = 0; i < enCancha.length; i++) {
       for (let k = i + 1; k < enCancha.length; k++) {
         const a = enCancha[i];
@@ -826,6 +952,44 @@ export class MotorPartido {
   }
 
   /** Barrida: se tira al piso hacia adelante. Si llega a la pelota la saca. */
+  /**
+   * Decide si el defensor se tira al piso a robarla.
+   *
+   * Sin esto la IA no comete una sola falta en todo el partido: no hay tiros
+   * libres, ni tarjetas, ni penales, y defender se siente como chocarse. El
+   * ultimo hombre solo se tira si el rival ya esta por entrar al area, porque
+   * errarla ahi deja el arco solo.
+   */
+  private iaSeBarre(j: JugadorPartido, dueno: JugadorPartido, dt: number): boolean {
+    if (j.estado !== 'normal' || j.bloqueo > 0) return false;
+    const d = distancia2(j.x, j.z, dueno.x, dueno.z);
+    if (d > ALCANCE_DE_BARRIDA || d < 0.9) return false;
+
+    const arco = this.arcoPropioDe(j.bando);
+    const peligro = limitar(1 - Math.abs(dueno.x - arco) / 45, 0, 1);
+    if (this.esUltimoHombre(j) && peligro < 0.8) return false;
+
+    // Un defensor con oficio elige mejor el momento; uno flojo se tira igual.
+    const ganas = (0.12 + j.attrs.quite / 300) * (0.45 + peligro);
+    if (Math.random() > ganas * dt * 7) return false;
+
+    j.rumbo = Math.atan2(dueno.z - j.z, dueno.x - j.x);
+    this.barrerse(j);
+    return true;
+  }
+
+  /** Si no queda ningun companero de campo entre el y su arco. */
+  private esUltimoHombre(j: JugadorPartido): boolean {
+    const arco = this.arcoPropioDe(j.bando);
+    const mio = Math.abs(j.x - arco);
+    for (const otro of this.jugadores) {
+      if (otro === j || otro.bando !== j.bando || otro.esArquero || otro.expulsado) continue;
+      if (otro.estado === 'caido' || otro.estado === 'barrida') continue;
+      if (Math.abs(otro.x - arco) < mio) return false;
+    }
+    return true;
+  }
+
   private barrerse(j: JugadorPartido): void {
     if (j.estado !== 'normal') return;
     j.estado = 'barrida';
@@ -883,6 +1047,7 @@ export class MotorPartido {
   }
 
   private cobrarFalta(victima: JugadorPartido, infractor: JugadorPartido): void {
+    this.faltas[infractor.bando] += 1;
     infractor.estado = 'caido';
     infractor.temporizador = 1.4;
     victima.estado = 'caido';
@@ -913,13 +1078,25 @@ export class MotorPartido {
    * El arbitro mira la velocidad de la barrida y si la jugada era clara.
    * Devuelve el texto que acompana al cartel, vacio si no hubo tarjeta.
    */
+  /**
+   * Criterio del arbitro. La barrida arranca rapido y frena enseguida, asi que
+   * la velocidad al contacto dice si llego de entrada o ya venia frenando. Lo
+   * demas lo decide el ojo del arbitro, que es justamente lo que no es exacto.
+   */
   private decidirTarjeta(victima: JugadorPartido, infractor: JugadorPartido): string {
-    const violencia = Math.hypot(infractor.vx, infractor.vz) / 12;
-    const arcoRival = this.arcoRivalDe(victima.bando);
-    const jugadaClara = Math.abs(victima.x - arcoRival) < 35 && this.pelota.duenoId === victima.id;
+    const velocidad = Math.hypot(infractor.vx, infractor.vz);
+    const dureza = limitar((velocidad - 8) / 7, 0, 1);
 
-    const roja = violencia > 0.92 || (jugadaClara && violencia > 0.75);
-    const amarilla = !roja && (violencia > 0.45 || jugadaClara);
+    // Derribar al ultimo hombre cerca del arco: la roja clasica.
+    const arcoRival = this.arcoRivalDe(victima.bando);
+    const cortoUnaJugadaDeGol =
+      this.pelota.duenoId === victima.id &&
+      Math.abs(victima.x - arcoRival) < 30 &&
+      this.esUltimoHombre(infractor);
+
+    const criterio = Math.random();
+    const roja = cortoUnaJugadaDeGol ? criterio < 0.3 : criterio < dureza * 0.05;
+    const amarilla = !roja && (cortoUnaJugadaDeGol || criterio < 0.16 + dureza * 0.26);
 
     if (roja) return ` · roja a ${this.expulsar(infractor)}`;
     if (amarilla) return ` · amarilla a ${this.amonestar(infractor)}`;
@@ -1084,7 +1261,13 @@ export class MotorPartido {
     this.fase = 'jugando';
   }
 
-  private pasar(j: JugadorPartido, intencionX: number, intencionZ: number, bombeado: boolean): void {
+  private pasar(
+    j: JugadorPartido,
+    intencionX: number,
+    intencionZ: number,
+    bombeado: boolean,
+    elegido: JugadorPartido | null = null,
+  ): void {
     const companeros = this.jugadores.filter(
       (o) => o.bando === j.bando && o.id !== j.id && !o.esArquero && o.estado !== 'caido' && !o.expulsado,
     );
@@ -1095,7 +1278,7 @@ export class MotorPartido {
     const dirZ = intencionZ / largo;
     const direccionAtaque = j.bando === 'usuario' ? 1 : -1;
 
-    const mejor = this.elegirDestino(j, dirX, dirZ, bombeado, companeros, direccionAtaque);
+    const mejor = elegido ?? this.elegirDestino(j, dirX, dirZ, bombeado, companeros, direccionAtaque);
     if (!mejor) return;
 
     // Le adelanto el pase a donde va a estar.
@@ -1125,6 +1308,39 @@ export class MotorPartido {
       this.pelota.vy = 0;
     }
     this.eventos.push({ tipo: 'pase' });
+  }
+
+  /**
+   * Si el pase llega antes que cualquier rival que pueda cruzarse.
+   *
+   * Para cada rival se busca el punto de la linea del pase mas cercano a el y
+   * se compara cuanto tarda la pelota en llegar ahi contra cuanto tarda el. Es
+   * la diferencia entre un equipo que juega y uno que regala la pelota.
+   */
+  private paseSeguro(desde: JugadorPartido, x: number, z: number, velocidadPase: number): boolean {
+    const dx = x - desde.x;
+    const dz = z - desde.z;
+    const d = Math.hypot(dx, dz) || 1;
+    const nx = dx / d;
+    const nz = dz / d;
+
+    for (const rival of this.jugadores) {
+      if (rival.bando === desde.bando || rival.expulsado) continue;
+      if (rival.estado === 'caido' || rival.estado === 'barrida') continue;
+
+      const avance = (rival.x - desde.x) * nx + (rival.z - desde.z) * nz;
+      // El que quedo atras del que pasa ya no llega.
+      if (avance <= 0) continue;
+
+      const hasta = Math.min(avance, d);
+      const cruceX = desde.x + nx * hasta;
+      const cruceZ = desde.z + nz * hasta;
+      const cuantoCorre = distancia2(rival.x, rival.z, cruceX, cruceZ) - RADIO_JUGADOR * 2;
+      if (cuantoCorre <= 0) return false;
+
+      if (cuantoCorre / this.velocidadDe(rival) < hasta / velocidadPase) return false;
+    }
+    return true;
   }
 
   /** El companero mejor ubicado para recibir, segun hacia donde apuntas. */
@@ -1157,10 +1373,15 @@ export class MotorPartido {
       const marca = this.rivalMasCercano(c);
       const libre = marca ? Math.min(1, distancia2(c.x, c.z, marca.x, marca.z) / 7) : 1;
       const avance = ((c.x - j.x) * direccionAtaque) / 30;
+      // Un pase que alguien va a cortar no es una opcion, es perder la pelota.
+      const llega = this.paseSeguro(j, c.x, c.z, bombeado ? Math.max(9, d / 1.2) : limitar(d * 1.5, 9, 26));
 
       // El que pasa mal tambien elige peor: ese ruido separa a un buen mediocampista.
       const ruido = (Math.random() - 0.5) * ((100 - j.attrs.pase) / 45);
-      const puntaje = alineacion * 2.4 + libre * 1.2 + avance - d / 70 + ruido;
+      // El que se fue a ofrecerse al mejor lugar es, justamente, el que hay que
+      // buscar: si no, todo ese movimiento no sirve para nada.
+      const seOfrecio = this.apoyos.some((a) => a.id === c.id) ? 1.8 : 0;
+      const puntaje = alineacion * 2.4 + libre * 1.2 + avance - d / 70 + ruido + (llega ? 2.5 : 0) + seOfrecio;
       if (puntaje > mejorPuntaje) {
         mejorPuntaje = puntaje;
         mejor = c;
@@ -1326,7 +1547,10 @@ export class MotorPartido {
       const alcance = j.esArquero ? ALCANCE_ALTO_ARQUERO : ALCANCE_ALTO;
       if (alturaMinima > alcance) continue;
 
-      const radio = RADIO_JUGADOR + RADIO_PELOTA + (j.esArquero ? 0.45 : j.estado === 'barrida' ? 0.5 : 0.1);
+      // El arquero no corre tres metros en tres decimas: se estira. Su alcance
+      // es la envergadura del vuelo, y de eso depende casi todo lo que ataja.
+      const estirada = j.esArquero ? 0.45 + (j.attrs.arquero / 100) * 0.6 : j.estado === 'barrida' ? 0.5 : 0.1;
+      const radio = RADIO_JUGADOR + RADIO_PELOTA + estirada;
       const t = limitar(((j.x - x0) * dx + (j.z - z0) * dz) / largo2, 0, 1);
       const px = x0 + dx * t;
       const pz = z0 + dz * t;
