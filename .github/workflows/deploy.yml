@@ -31,10 +31,9 @@ jobs:
       # El script de build corre el typecheck antes de empaquetar.
       - run: npm run build
 
-      # enablement activa Pages solo la primera vez, sin tocar los ajustes a mano.
+      # Pages tiene que estar habilitado en Settings, Pages, con Source en
+      # "GitHub Actions": el token de Actions no puede crear el sitio por su cuenta.
       - uses: actions/configure-pages@v5
-        with:
-          enablement: true
 
       - uses: actions/upload-pages-artifact@v3
         with:
