@@ -13,6 +13,12 @@ Juego de futbol para celular que mezcla tres cosas que normalmente vienen separa
 Web primero, jugable desde el navegador del celular y empaquetable a Android e
 iOS con Capacitor.
 
+## Hacia donde va
+
+El objetivo no es solo un juego de futbol: es que te encarines con tus
+jugadores y con tu club. Las decisiones de diseno que salen de ahi, y las que
+todavia estan abiertas, viven en [VISION.md](VISION.md).
+
 ## Estado
 
 Version jugable de punta a punta: elegis club, jugas la fecha en modo arcade o la simulas,
