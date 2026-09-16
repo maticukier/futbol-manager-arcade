@@ -181,8 +181,11 @@ export class MotorPartido {
 
     if (this.temporizadorFase > 0) {
       this.temporizadorFase -= dt;
-      this.moverJugadores(dt, entrada, true);
-      this.pegarPelotaAlDueno();
+      // En el penal nadie se mueve: ya estan todos acomodados.
+      if (this.fase !== 'penal') {
+        this.moverJugadores(dt, entrada, true);
+        this.pegarPelotaAlDueno();
+      }
       if (this.temporizadorFase <= 0) this.terminarFase();
       return;
     }
@@ -228,6 +231,9 @@ export class MotorPartido {
         break;
       case 'final':
         this.terminado = true;
+        break;
+      case 'penal':
+        // El penal sigue despues del cartel: lo resuelve resolverPenal.
         break;
       default:
         this.fase = 'jugando';
@@ -325,10 +331,11 @@ export class MotorPartido {
       if (j.expulsado) continue;
       j.bloqueo = Math.max(0, j.bloqueo - dt);
       j.patada = Math.max(0, j.patada - dt);
-      // El que no esta esprintando recupera de a poco hasta su techo de forma.
-      const desgaste = dt * 0.0022 * (1.4 - j.attrs.fisico / 200);
-      const recupera = this.controladoId === j.id ? dt * 0.02 : dt * 0.05;
-      j.energia = limitar(j.energia - desgaste + (j.estado === 'normal' ? recupera * 0.4 : 0), 0, 1);
+      // El aire se gasta corriendo y se recupera trotando o parado, nunca al reves.
+      const velocidad = Math.hypot(j.vx, j.vz);
+      const desgaste = dt * (0.0016 + velocidad * 0.0011) * (1.4 - j.attrs.fisico / 200);
+      const recupera = velocidad < 2.2 ? dt * 0.012 : 0;
+      j.energia = limitar(j.energia - desgaste + recupera, 0.35, 1);
 
       if (j.estado === 'barrida' || j.estado === 'caido') {
         this.avanzarBarrida(j, dt);
@@ -452,7 +459,7 @@ export class MotorPartido {
 
     if (distanciaArco < 32 && Math.abs(j.z) < 24) {
       const ganas = 0.55 + j.attrs.tiro / 220 - distanciaArco / 90;
-      if (Math.random() < ganas * dt * 2.1) {
+      if (Math.random() < ganas * dt * 1.85) {
         this.patear(j, 0.85);
         return;
       }
@@ -493,7 +500,7 @@ export class MotorPartido {
     if (this.pelota.duenoId === arquero.id) {
       // Con la pelota en la mano sale jugando: camina hasta el borde del area
       // en vez de quedarse plantado sobre la linea.
-      objetivoX = linea + (AREA_LARGO - 2) * haciaAdentro;
+      objetivoX = linea + 10 * haciaAdentro;
       objetivoZ = limitar(arquero.z * 0.5, -12, 12);
       this.irHacia(arquero, objetivoX, objetivoZ, dt, 0.55);
       return;
@@ -926,7 +933,9 @@ export class MotorPartido {
       const libre = marca ? Math.min(1, distancia2(c.x, c.z, marca.x, marca.z) / 7) : 1;
       const avance = ((c.x - j.x) * direccionAtaque) / 30;
 
-      const puntaje = alineacion * 2.4 + libre * 1.2 + avance - d / 70;
+      // El que pasa mal tambien elige peor: ese ruido separa a un buen mediocampista.
+      const ruido = (Math.random() - 0.5) * ((100 - j.attrs.pase) / 45);
+      const puntaje = alineacion * 2.4 + libre * 1.2 + avance - d / 70 + ruido;
       if (puntaje > mejorPuntaje) {
         mejorPuntaje = puntaje;
         mejor = c;
@@ -982,7 +991,8 @@ export class MotorPartido {
    */
   private resolverDisputa(dt: number): void {
     const dueno = this.porId(this.pelota.duenoId);
-    if (!dueno) return;
+    // Al arquero con la pelota en la mano no se le entra: seria falta.
+    if (!dueno || dueno.esArquero) return;
 
     for (const rival of this.jugadores) {
       if (rival.bando === dueno.bando || rival.bloqueo > 0 || rival.estado !== 'normal' || rival.expulsado) continue;
@@ -1187,7 +1197,7 @@ export class MotorPartido {
     // Si el arquero lo maneja el usuario le doy tiempo para que la juegue el,
     // pero igual la saca sola: si no, el partido se queda congelado.
     const loJuegaElUsuario = !this.iaTotal && dueno.bando === 'usuario' && this.controladoId === dueno.id;
-    const espera = loJuegaElUsuario ? 6 : 2.2;
+    const espera = loJuegaElUsuario ? 6 : 1.7;
 
     // Antes de la espera completa ya puede sacar, si llego al borde del area.
     const linea = this.arcoPropioDe(dueno.bando);
