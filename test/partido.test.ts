@@ -153,6 +153,72 @@ describe('reglas del partido', () => {
   });
 });
 
+describe('reloj', () => {
+  it('arranca en cero y llega a los noventa al final del partido', () => {
+    const estado = nuevaPartida(0, 606);
+    const [local, visitante] = estado.clubs.filter((c) => c.division === 1);
+    const { motor } = jugarPartidoCompleto(estado, local.id, visitante.id);
+
+    expect(motor.terminado).toBe(true);
+    expect(motor.tiempoActual).toBe(2);
+    expect(motor.minuto).toBe(90);
+  });
+
+  it('avanza sin topes durante el primer tiempo', () => {
+    const { motor } = motorDePrueba(707);
+    const marcas: number[] = [];
+
+    // Un tiempo dura noventa segundos reales: voy midiendo el minuto.
+    for (let i = 0; i < 60 * 95; i++) {
+      motor.paso(PASO, ENTRADA_VACIA);
+      if (i % (60 * 10) === 0) marcas.push(motor.minuto);
+    }
+
+    // El minuto tiene que crecer, no quedarse clavado en ninguno.
+    expect(new Set(marcas).size).toBeGreaterThan(4);
+    expect(Math.max(...marcas)).toBeGreaterThan(40);
+  });
+});
+
+describe('arquero', () => {
+  it('sale a buscar una pelota suelta en su area', () => {
+    const { motor } = motorDePrueba(808);
+    const arquero = motor.jugadores.find((j) => j.bando === 'rival' && j.esArquero)!;
+
+    motor.fase = 'jugando';
+    motor.aviso = null;
+    arquero.x = LARGO / 2 - 1;
+    arquero.z = 0;
+    // Pelota quieta dentro del area, sin dueno y sin nadie cerca.
+    Object.assign(motor.pelota, { x: LARGO / 2 - 11, z: 4, y: 0.12, vx: 0, vy: 0, vz: 0, duenoId: null, ultimoToqueId: null });
+    for (const j of motor.jugadores) {
+      if (j === arquero) continue;
+      j.x = -20;
+      j.z = 0;
+    }
+
+    const distanciaInicial = Math.hypot(arquero.x - motor.pelota.x, arquero.z - motor.pelota.z);
+    for (let i = 0; i < 180 && motor.pelota.duenoId !== arquero.id; i++) motor.paso(PASO, ENTRADA_VACIA);
+
+    expect(motor.pelota.duenoId).toBe(arquero.id);
+    expect(distanciaInicial).toBeGreaterThan(5);
+  });
+
+  it('no abandona el arco por una pelota lejos de su area', () => {
+    const { motor } = motorDePrueba(909);
+    const arquero = motor.jugadores.find((j) => j.bando === 'rival' && j.esArquero)!;
+
+    motor.fase = 'jugando';
+    motor.aviso = null;
+    arquero.x = LARGO / 2 - 1;
+    Object.assign(motor.pelota, { x: 0, z: 0, y: 0.12, vx: 0, vy: 0, vz: 0, duenoId: null, ultimoToqueId: null });
+
+    for (let i = 0; i < 180; i++) motor.paso(PASO, ENTRADA_VACIA);
+
+    expect(LARGO / 2 - arquero.x).toBeLessThan(22);
+  });
+});
+
 describe('balance del partido', () => {
   let restaurar: () => void;
 

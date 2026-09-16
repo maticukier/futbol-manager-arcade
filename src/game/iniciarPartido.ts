@@ -77,11 +77,14 @@ export function jugarPartidoArcade(
       ultimoInstante = instante;
 
       const entrada = interfaz.leer();
-      if (!pausado) motor.paso(dt, entrada);
+      // Durante la repeticion el partido se congela: si no, el usuario se
+      // pierde la jugada que arranca mientras esta mirando el gol.
+      const congelado = pausado || repeticion !== null;
+      if (!congelado) motor.paso(dt, entrada);
 
       // Voy guardando fotos para poder repetir la jugada del gol.
       desdeUltimaFoto += dt;
-      if (!pausado && desdeUltimaFoto >= 1 / GRABACION_HZ) {
+      if (!congelado && desdeUltimaFoto >= 1 / GRABACION_HZ) {
         desdeUltimaFoto = 0;
         historial.push(motor.instantanea());
         if (historial.length > GRABACION_HZ * SEGUNDOS_GRABADOS) historial.shift();
@@ -105,12 +108,17 @@ export function jugarPartidoArcade(
       }
 
       let foto: Instantanea | null = null;
-      if (repeticion && repeticion.length > 4) {
-        tiempoRepeticion += dt;
-        // Se repite un poco mas lenta que el juego, como en la tele.
-        const indice = Math.floor(tiempoRepeticion * GRABACION_HZ * 0.7);
-        if (tiempoRepeticion > DURACION_REPETICION || indice >= repeticion.length) repeticion = null;
-        else foto = repeticion[indice];
+      if (repeticion) {
+        if (repeticion.length <= 4) {
+          // Muy poco grabado para repetir algo: sigo de largo.
+          repeticion = null;
+        } else {
+          tiempoRepeticion += dt;
+          // Se repite un poco mas lenta que el juego, como en la tele.
+          const indice = Math.floor(tiempoRepeticion * GRABACION_HZ * 0.7);
+          if (tiempoRepeticion > DURACION_REPETICION || indice >= repeticion.length) repeticion = null;
+          else foto = repeticion[indice];
+        }
       }
 
       const destino = motor.destinoDePase(false, entrada.moverX, entrada.moverZ);

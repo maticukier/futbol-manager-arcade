@@ -268,7 +268,6 @@ export class MotorPartido {
   get minuto(): number {
     const parcial = Math.min(
       MINUTOS_POR_TIEMPO,
-  PENAL_DISTANCIA,
       Math.floor((this.segundosJugados / SEGUNDOS_POR_TIEMPO) * MINUTOS_POR_TIEMPO),
     );
     return this.tiempoActual === 1 ? parcial : MINUTOS_POR_TIEMPO + parcial;
@@ -511,6 +510,12 @@ export class MotorPartido {
       return;
     }
 
+    // Pelota suelta en su area: sale a buscarla en vez de mirarla pasar.
+    if (!detenido && this.deberiaSalirAbuscarla(arquero, linea)) {
+      this.irHacia(arquero, this.pelota.x, this.pelota.z, dt, 1.2);
+      return;
+    }
+
     const cruce = this.cruceDelRemate(arquero);
     if (!detenido && cruce !== null) {
       // Se estira hacia donde va a cruzar la linea. Que llegue o no depende de
@@ -535,6 +540,35 @@ export class MotorPartido {
     arquero.vx += ((dx / d) * velocidad - arquero.vx) * suave;
     arquero.vz += ((dz / d) * velocidad - arquero.vz) * suave;
     this.integrar(arquero, dt);
+  }
+
+  /**
+   * Decide si el arquero tiene que salir a quedarse con una pelota suelta.
+   * Solo dentro de su area y solo si llega antes que el rival mas cercano:
+   * no queremos verlo corriendo hasta el medio de la cancha.
+   */
+  private deberiaSalirAbuscarla(arquero: JugadorPartido, linea: number): boolean {
+    if (this.pelota.duenoId !== null) return false;
+    if (this.pelota.y > ALCANCE_ALTO_ARQUERO) return false;
+
+    // Una pelota rapida no se va a buscar corriendo: para eso esta la estirada.
+    if (Math.hypot(this.pelota.vx, this.pelota.vz) > 8) return false;
+
+    const dentroDelArea =
+      Math.abs(this.pelota.x - linea) < AREA_LARGO && Math.abs(this.pelota.z) < AREA_ANCHO / 2;
+    if (!dentroDelArea) return false;
+
+    const suya = distancia2(arquero.x, arquero.z, this.pelota.x, this.pelota.z);
+    if (suya > 12) return false;
+
+    let rivalMasCerca = Infinity;
+    for (const j of this.jugadores) {
+      if (j.bando === arquero.bando || j.expulsado || j.estado === 'caido') continue;
+      rivalMasCerca = Math.min(rivalMasCerca, distancia2(j.x, j.z, this.pelota.x, this.pelota.z));
+    }
+
+    // Sale solo si llega claramente primero: dejar el arco vacio cuesta un gol.
+    return suya < rivalMasCerca - 0.5;
   }
 
   /**
@@ -1307,7 +1341,7 @@ export class MotorPartido {
     this.fase = 'gol';
     this.eventos.push({ tipo: 'gol' });
     this.prepararSaqueInicial(bando === 'usuario' ? 'rival' : 'usuario');
-    this.anunciar('¡GOL!', suyo && autor ? autor.nombre : 'En contra', 2.2);
+    this.anunciar('¡GOL!', suyo && autor ? autor.nombre : 'En contra', 1.3);
   }
 
   private prepararSaqueInicial(bando: Bando): void {
