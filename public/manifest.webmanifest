@@ -1,0 +1,19 @@
+{
+  "id": "./",
+  "name": "Futbol Manager Arcade",
+  "short_name": "FMA",
+  "description": "Jugas el partido, dirigis el equipo y manejas la caja del club.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0b1220",
+  "theme_color": "#0b1220",
+  "lang": "es-AR",
+  "categories": ["games", "sports"],
+  "icons": [
+    { "src": "./icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "./icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "./icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

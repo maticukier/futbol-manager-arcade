@@ -6,13 +6,42 @@ Juego de futbol para celular que mezcla tres cosas que normalmente vienen separa
 - **Direccion tecnica** (estilo Football Manager): once titular, formacion, actitud del equipo, lesiones, moral y mercado de pases.
 - **Presidencia del club** (estilo Football Chairman): caja, precio de la entrada, socios, estadio, cantera, sponsors y un directorio que te puede echar.
 
-Web primero, empaquetado a Android e iOS con Capacitor.
+Web primero, jugable desde el navegador del celular y empaquetable a Android e
+iOS con Capacitor.
 
 ## Estado
 
 Version jugable de punta a punta: elegis club, jugas la fecha en modo arcade o la simulas,
 cobras la taquilla, invertis la plata y la temporada se cierra sola con premios, juveniles y
 evaluacion del directorio. La partida se guarda en el navegador.
+
+## Jugar desde el celular
+
+El juego se publica solo en GitHub Pages con cada push a `main`:
+
+**https://maticukier.github.io/futbol-manager-arcade/**
+
+Abri esa direccion en el celular y agregala a la pantalla de inicio. Queda como
+una app: arranca sin barra del navegador, en vertical y con su propio icono.
+
+- **Android (Chrome):** menu de tres puntos, "Agregar a la pantalla principal".
+- **iPhone (Safari):** boton de compartir, "Agregar a inicio".
+
+Se guarda la partida en el telefono, asi que podes cerrar y seguir despues.
+
+Para que la publicacion funcione hay que habilitarla una sola vez en el repo:
+Settings, Pages, y en "Source" elegir **GitHub Actions**.
+
+### Sin publicar, desde la misma red
+
+Con la compu prendida y el celular en el mismo wifi:
+
+```bash
+npm run dev -- --host
+```
+
+Vite imprime una direccion tipo `http://192.168.0.10:5173`. Esa es la que abris
+en el telefono.
 
 ## Como correrlo
 

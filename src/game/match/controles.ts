@@ -49,10 +49,10 @@ export class Controles {
     tiro: Phaser.Input.Keyboard.Key;
   } | null = null;
 
-  constructor(escena: Phaser.Scene) {
+  constructor(escena: Phaser.Scene, margenInferior = 0) {
     this.escena = escena;
     const ancho = escena.scale.width;
-    const alto = escena.scale.height;
+    const alto = escena.scale.height - margenInferior;
 
     this.capa = escena.add.container(0, 0).setScrollFactor(0).setDepth(1000);
 

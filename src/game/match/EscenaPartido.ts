@@ -33,6 +33,8 @@ type FasePartido = 'saque' | 'jugando' | 'gol' | 'entretiempo' | 'final';
 
 export interface DatosEscenaPartido {
   config: ConfiguracionPartido;
+  /** Franjas reservadas por el sistema, en pixeles de CSS. */
+  areaSegura: { arriba: number; abajo: number };
   alTerminar: (resultado: ResultadoPartido) => void;
   alSalir: () => void;
 }
@@ -49,6 +51,7 @@ export class EscenaPartido extends Phaser.Scene {
   private config!: ConfiguracionPartido;
   private alTerminar!: (resultado: ResultadoPartido) => void;
   private alSalir!: () => void;
+  private areaSegura = { arriba: 0, abajo: 0 };
 
   private jugadores: JugadorPartido[] = [];
   private pelota: Pelota = { x: 0, y: 0, vx: 0, vy: 0, duenoId: null, ultimoToqueId: null, bloqueoPosesion: 0 };
@@ -94,6 +97,7 @@ export class EscenaPartido extends Phaser.Scene {
     this.config = datos.config;
     this.alTerminar = datos.alTerminar;
     this.alSalir = datos.alSalir;
+    this.areaSegura = datos.areaSegura ?? { arriba: 0, abajo: 0 };
   }
 
   create(): void {
@@ -111,7 +115,7 @@ export class EscenaPartido extends Phaser.Scene {
     camara.startFollow(this.objetivoCamara, true, 0.08, 0.08);
 
     this.crearHud();
-    this.controles = new Controles(this);
+    this.controles = new Controles(this, this.areaSegura.abajo);
     this.objetosUi.push(...this.controles.objetos());
 
     // El HUD y los controles viven en su propia camara: si no, el zoom que
@@ -220,20 +224,22 @@ export class EscenaPartido extends Phaser.Scene {
   private crearHud(): void {
     const estilo = { fontFamily: 'system-ui, sans-serif', color: '#ffffff' };
 
+    const arriba = this.areaSegura.arriba;
+
     const fondoBarra = this.add
-      .rectangle(0, 0, this.scale.width, 64, 0x0b1220, 0.75)
+      .rectangle(0, 0, this.scale.width, 64 + arriba, 0x0b1220, 0.75)
       .setOrigin(0, 0)
       .setScrollFactor(0)
       .setDepth(900);
 
     this.textoMarcador = this.add
-      .text(this.scale.width / 2, 18, '', { ...estilo, fontSize: '20px', fontStyle: 'bold' })
+      .text(this.scale.width / 2, 18 + arriba, '', { ...estilo, fontSize: '20px', fontStyle: 'bold' })
       .setOrigin(0.5, 0)
       .setScrollFactor(0)
       .setDepth(901);
 
     this.textoReloj = this.add
-      .text(this.scale.width / 2, 42, '', { ...estilo, fontSize: '14px', color: '#9fb3c8' })
+      .text(this.scale.width / 2, 42 + arriba, '', { ...estilo, fontSize: '14px', color: '#9fb3c8' })
       .setOrigin(0.5, 0)
       .setScrollFactor(0)
       .setDepth(901);
@@ -250,7 +256,7 @@ export class EscenaPartido extends Phaser.Scene {
       .setDepth(950);
 
     this.botonSalir = this.add
-      .text(12, 18, 'Salir', { ...estilo, fontSize: '14px', backgroundColor: '#33415560', padding: { x: 8, y: 4 } })
+      .text(12, 18 + arriba, 'Salir', { ...estilo, fontSize: '14px', backgroundColor: '#33415560', padding: { x: 8, y: 4 } })
       .setScrollFactor(0)
       .setDepth(901)
       .setInteractive({ useHandCursor: true });
