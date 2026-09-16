@@ -196,22 +196,48 @@ puede dar vuelta, pero mientras no se de vuelta, se programa asi.
 
 ## Lo que falta definir
 
-Son las unicas que pueden frenar. Si no se contestan, se programa con lo que
-dice "por defecto" y se corrige despues.
+Solo queda una: **como se llama el juego**. Por ahora sigue siendo Futbol
+Manager Arcade, que es provisorio. No frena nada.
 
-1. **Cuantas ligas con detalle se pueden elegir.**
-   *Por defecto:* de una a cinco, arrancando en dos. Mas que eso empieza a
-   pesar en el guardado y en el tiempo de simulacion por semana.
-2. **Si el detalle se puede sumar en el medio de la carrera.**
-   *Por defecto:* si, y ademas automatico. Si te vas a dirigir a otra liga, o
-   si te cruzas seguido con clubes de ahi, esa liga pasa a detalle completo
-   sola.
-3. **Si de una liga liviana se puede fichar.**
-   *Por defecto:* si, pero a ciegas: ves el nombre y poco mas hasta que lo
-   observes. Comprar sin saber es parte del riesgo.
-4. **Como se llama el juego.**
-   *Por defecto:* sigue siendo Futbol Manager Arcade, que es un nombre
-   provisorio.
+## Detalle del mundo y fichajes
+
+Tres decisiones que cierran el tema del mundo grande.
+
+### Cuantas ligas con detalle: las que quiera
+No hay tope. El usuario elige cuantas ligas corren con detalle completo,
+**sabiendo que cada una suma peso al guardado y tiempo a cada semana
+simulada**. La responsabilidad de avisar es del juego: al elegir tiene que
+verse el costo, no descubrirlo despues cuando todo se pone lento.
+
+**Consecuencia:** hay que medir y mostrar cuanto cuesta cada liga, y que el
+juego siga siendo usable con muchas. Las ligas livianas no se tocan: siguen
+guardando posicion final, campeon de copa, los tres mejores jugadores y la
+tabla de goleadores.
+
+### El detalle se puede sumar en el medio
+Una liga liviana puede pasar a detalle completo en cualquier momento de la
+carrera. Al pasar, esa liga se completa: se le generan los planteles de
+verdad respetando lo que ya habia pasado (quien salio campeon, quien hizo los
+goles), para que no se contradiga con la historia que el usuario ya vio.
+
+### Fichar siempre se puede, convencer es otra cosa
+Se puede ir a buscar a cualquier jugador del mundo, de cualquier liga. Lo
+dificil es que acepte.
+
+La decision es del jugador, no del club. Pesan:
+
+- **La diferencia de reputacion.** Si estas en una liga chica y el esta en una
+  grande, la respuesta normal es que no.
+- **Los minutos que le prometas.** Es la carta fuerte para dar vuelta un no:
+  prometerle que va a ser titular puede convencer a alguien que en su club no
+  juega.
+- **Su decision, igual.** Aun con todo a favor, **el jugador puede negarse a
+  negociar**. No es una formula que se resuelve: es alguien que puede decir
+  que no.
+
+**Consecuencia:** las promesas hay que guardarlas y hay que cumplirlas. Si le
+prometiste titularidad y lo tenes en el banco, se tiene que enterar, bajarle
+la moral y querer irse. Una promesa que no se puede romper no es una promesa.
 
 ## Como se usa este documento
 
