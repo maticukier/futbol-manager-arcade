@@ -76,19 +76,46 @@ cualquier lado. Si la reputacion del club que lo busca esta muy por debajo de
 la suya, no acepta; si esta muy por arriba, el club no lo mira. Eso le pone
 techo y piso al mercado sin necesidad de reglas artificiales.
 
-### Coeficiente de ligas
-Cada liga tiene un coeficiente que sale de como le fue a sus clubes en los
-ultimos anos a nivel internacional, igual que el coeficiente de UEFA, y tambien
-para Sudamerica y el resto. El coeficiente reparte **cupos** a cada pais para
-las copas internacionales.
+### Regiones y coeficiente de ligas
+El mundo se divide en regiones: **America, Europa, Asia y Oceania**. Cada
+region organiza sus propias copas.
 
-Es lo que convierte la carrera en un proyecto largo con progreso medible: el
+Cada liga tiene un coeficiente que sale de como le fue a sus clubes en las
+copas de su region en los ultimos anos, igual que el coeficiente de UEFA. El
+coeficiente reparte **cupos** por pais: las ligas que rinden ganan lugares y
+las que no, los pierden.
+
+Es lo que convierte la carrera en un proyecto largo con progreso medible. El
 desafio deja de ser "salir campeon otra vez" y pasa a ser *"hacer que Bolivia
-sea la mejor liga del mundo"*. El progreso se ve en una tabla que se mueve de
-a poco, temporada tras temporada.
+sea la mejor liga del mundo"*, y ese progreso se ve en una tabla que se mueve
+de a poco, temporada tras temporada, no en un cartel de campeon.
 
 **Consecuencia:** obliga a que el mundo tenga varios paises, competencias
 internacionales y memoria de varios anos de resultados por pais.
+
+### Las copas de America
+America es **una sola region**, de punta a punta: Sudamerica, Mexico, Estados
+Unidos, Canada, Centroamerica y todo el Caribe compiten en el mismo sistema.
+Un club mexicano y uno boliviano se cruzan en la misma copa.
+
+Hay tres competencias, que forman una escalera:
+
+| Copa | Que es | Como se entra |
+| --- | --- | --- |
+| **Libertadores** | La grande | Cupos por coeficiente, a los mejores de cada liga |
+| **Sudamericana** | La segunda | Cupos por coeficiente, mas el campeon de la Panamericana |
+| **Panamericana** | La puerta de entrada | Campeones de las federaciones chicas y los que quedan afuera de las otras dos |
+
+La Panamericana es la que hace que un club de una liga chica tenga a donde
+jugar y de donde empezar a subir. Ganarla da un lugar en la Sudamericana del
+ano siguiente, y ahi arranca la escalera. Sin ella, un club del Caribe no
+tendria ningun camino internacional y el coeficiente de su pais nunca se
+moveria.
+
+**Consecuencia de escala:** America con todos sus paises es un mundo grande.
+La estimacion, contando inferiores de 12 a 18, esta en el orden de decenas de
+miles de jugadores y de varios MB de guardado. Es perfectamente manejable en
+IndexedDB, pero confirma que hay que salir de localStorage antes de empezar.
 
 ### Juveniles de 12 anos a reserva
 Cada club tiene divisiones inferiores desde los 12 anos hasta reserva. Se los
@@ -132,12 +159,14 @@ solo numero que sube y baja.
 Cada una cambia codigo, no solo texto. La recomendacion es una opinion, no una
 decision tomada.
 
-### 1. Cuantos paises entran y en que orden
-El coeficiente de ligas ya decide que el mundo es global. Lo que falta decidir
-es con cuantos paises arranca y como se suman los demas, porque el coeficiente
-necesita varios anos de historia internacional para tener sentido.
-**Recomendado:** arrancar con seis u ocho paises de Sudamerica, con copa
-continental, y sumar Europa despues. Con seis ya se ve el coeficiente moverse.
+### 1. Con que parte del mundo arranca
+El mundo final son cuatro regiones, y America completa de punta a punta. Falta
+decidir por donde se empieza a construir, porque el coeficiente necesita varios
+anos de historia para que se note.
+**Recomendado:** America entera primero, con las tres copas funcionando. Es la
+region que el juego mas quiere, y arrancar con ella deja probar el coeficiente
+de verdad: ligas grandes, ligas chicas y una escalera entre medio. Las otras
+regiones despues, cuando la maquinaria este andando.
 
 ### 2. Cuanto detalle tiene el mundo lejano
 Todos los jugadores del mundo con el mismo detalle, o detalle completo cerca
@@ -215,7 +244,19 @@ Si el mundo es global, aparecen muchos mas partidos por temporada.
 temporada con liga, copa nacional y copa internacional no puede obligar a
 jugar cuarenta partidos.
 
-### 15. Nota de rendimiento por partido
+### 15. Africa
+Las regiones quedaron en America, Europa, Asia y Oceania. Falta decidir si
+Africa entra como quinta region o se reparte.
+**Recomendado:** que entre como quinta. El modelo de datos no cambia y evita
+un agujero raro en el mapa.
+
+### 16. La escalera de copas, se sube y se baja
+La Panamericana da lugar en la Sudamericana al ano siguiente. Falta decidir si
+tambien hay caida: si un club grande que fracasa termina jugando la copa chica.
+**Recomendado:** que si. La caida es lo que hace que la escalera se sienta
+como una tabla y no como un premio.
+
+### 17. Nota de rendimiento por partido
 La necesitan la reputacion y el potencial. Falta decidir si es un numero
 visible tipo puntaje de diario, o algo interno que solo mueve el desarrollo.
 **Recomendado:** visible. Es barato y le da al usuario una razon para mirar la
