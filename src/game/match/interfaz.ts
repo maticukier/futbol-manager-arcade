@@ -44,7 +44,13 @@ export class InterfazPartido {
 
   private readonly menu: MenuPausa;
 
-  constructor(contenedor: HTMLElement, motor: MotorPartido, alSalir: () => void, alPausar: (v: boolean) => void) {
+  constructor(
+    contenedor: HTMLElement,
+    motor: MotorPartido,
+    alSalir: () => void,
+    alPausar: (v: boolean) => void,
+    alSilenciar: (v: boolean) => boolean,
+  ) {
     this.motor = motor;
 
     this.raiz = document.createElement('div');
@@ -52,6 +58,7 @@ export class InterfazPartido {
     this.raiz.innerHTML = `
       <div class="partido__hud">
         <button class="partido__salir" type="button">Pausa</button>
+        <button class="partido__silencio" type="button" aria-label="Sonido">🔊</button>
         <div class="partido__centro">
           <div class="partido__marcador"></div>
           <div class="partido__reloj"></div>
@@ -99,6 +106,12 @@ export class InterfazPartido {
     this.raiz.querySelector('.partido__salir')!.addEventListener('click', () => {
       alPausar(true);
       this.menu.abrir();
+    });
+
+    const silencio = this.raiz.querySelector<HTMLButtonElement>('.partido__silencio')!;
+    silencio.addEventListener('click', () => {
+      const silenciado = alSilenciar(silencio.textContent === '🔊');
+      silencio.textContent = silenciado ? '🔇' : '🔊';
     });
     this.conectarBotones();
     this.conectarJoystick();
@@ -264,7 +277,8 @@ export class InterfazPartido {
 
   // ----------------------------------------------------------------- pintado
 
-  actualizar(): void {
+  actualizar(repitiendo = false): void {
+    this.raiz.classList.toggle('partido--repeticion', repitiendo);
     const { usuario, rival } = this.motor.config;
     this.marcador.innerHTML = `
       <span>${usuario.abrev}</span>

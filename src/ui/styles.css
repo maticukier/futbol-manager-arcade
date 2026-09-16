@@ -926,3 +926,28 @@ nav .icono {
   font-size: 12.5px;
   margin-bottom: 10px;
 }
+
+.partido__silencio {
+  pointer-events: auto;
+  background: rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  color: #fff;
+  border-radius: 10px;
+  padding: 6px 10px;
+  font-size: 14px;
+  line-height: 1;
+}
+
+/* Mientras se repite el gol se esconden los controles. */
+.partido--repeticion .partido__botones,
+.partido--repeticion .partido__joystick {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.partido--repeticion .partido__aviso::after {
+  content: 'REPETICION';
+  font-size: 12px;
+  letter-spacing: 3px;
+  color: #cfe0f5;
+}

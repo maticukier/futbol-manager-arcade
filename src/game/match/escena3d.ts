@@ -15,6 +15,7 @@ import {
   limitar,
 } from './mundo';
 import { FabricaJugadores, animarJugador, type PiezasJugador } from './jugador3d';
+import type { Instantanea, JugadorPartido } from './entidades';
 import type { MotorPartido } from './motor';
 
 /** Ancho de cancha que queremos ver en pantalla, en metros. Cuanto menos, mas
@@ -394,8 +395,16 @@ export class Escena3D {
 
   // ------------------------------------------------------------------ cuadro
 
-  actualizar(dt: number, destinoPase: string | null = null): void {
+  actualizar(dt: number, destinoPase: string | null = null, foto: Instantanea | null = null): void {
     this.sincronizarJugadores();
+
+    if (foto) {
+      this.pintarInstantanea(foto);
+      this.marcaPase.visible = false;
+      this.moverCamaraRepeticion(dt, foto);
+      this.render.render(this.escena, this.camara);
+      return;
+    }
 
     for (const j of this.motor.jugadores) {
       const piezas = this.piezas.get(j.id);
@@ -418,6 +427,31 @@ export class Escena3D {
 
     this.moverCamara(dt);
     this.render.render(this.escena, this.camara);
+  }
+
+  /** Dibuja una foto guardada, para la repeticion del gol. */
+  private pintarInstantanea(foto: Instantanea): void {
+    for (const f of foto.jugadores) {
+      const piezas = this.piezas.get(f.id);
+      if (!piezas) continue;
+      piezas.raiz.visible = true;
+      animarJugador(piezas, f as unknown as JugadorPartido, false);
+    }
+    this.pelota.position.set(foto.pelota.x, foto.pelota.y, foto.pelota.z);
+    this.sombraPelota.position.set(foto.pelota.x, 0.03, foto.pelota.z);
+  }
+
+  /** Camara de repeticion: mas baja y mas cerca, mirando hacia el arco. */
+  private moverCamaraRepeticion(dt: number, foto: Instantanea): void {
+    const lado = Math.sign(foto.pelota.x) || 1;
+    const deseada = new THREE.Vector3(
+      foto.pelota.x - lado * 16,
+      9,
+      foto.pelota.z + 20,
+    );
+    this.posicionCamara.lerp(deseada, 1 - Math.exp(-dt * 2.4));
+    this.camara.position.copy(this.posicionCamara);
+    this.camara.lookAt(foto.pelota.x, 1.2, foto.pelota.z);
   }
 
   /** Los cambios traen ids nuevos: creo y saco mallas segun quien este en cancha. */
@@ -445,7 +479,8 @@ export class Escena3D {
     const p = this.motor.pelota;
     const distancia = this.distanciaDeCamara(dt);
 
-    const objetivoX = limitar(p.x * 0.85, -(LARGO / 2 - 10), LARGO / 2 - 10);
+    // Le adelanto un poco la camara a la pelota: en las contras se agradece.
+    const objetivoX = limitar((p.x + p.vx * 0.35) * 0.85, -(LARGO / 2 - 10), LARGO / 2 - 10);
     const objetivoZ = p.z * 0.45;
 
     const deseada = new THREE.Vector3(

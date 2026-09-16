@@ -31,6 +31,7 @@ import type {
   ConfiguracionPartido,
   EntradaPartido,
   FaseJuego,
+  EventoPartido,
   Instantanea,
   JugadorPartido,
   Pelota,
@@ -76,6 +77,9 @@ export class MotorPartido {
   readonly cambiosUsados = { usuario: 0, rival: 0 };
   /** Maximo de cambios por equipo, como en el futbol de hoy. */
   readonly cambiosMaximos = 5;
+
+  /** Cola de avisos para el sonido; el bucle la vacia en cada cuadro. */
+  readonly eventos: EventoPartido[] = [];
 
   private amonestados: string[] = [];
   private expulsados: string[] = [];
@@ -250,6 +254,7 @@ export class MotorPartido {
 
   private revisarReloj(): void {
     if (this.segundosJugados < SEGUNDOS_POR_TIEMPO) return;
+    this.eventos.push({ tipo: 'silbato', largo: 0.6 });
     if (this.tiempoActual === 1) {
       this.fase = 'entretiempo';
       this.anunciar('ENTRETIEMPO', `${this.golesUsuario} - ${this.golesRival}`, 2);
@@ -667,6 +672,7 @@ export class MotorPartido {
 
     const x = limitar(victima.x, -LARGO / 2 + 3, LARGO / 2 - 3);
     const z = limitar(victima.z, -ANCHO / 2 + 2, ANCHO / 2 - 2);
+    this.eventos.push({ tipo: 'silbato' });
     const tarjeta = this.decidirTarjeta(victima, infractor);
 
     // Falta dentro del area propia del infractor: penal.
@@ -900,6 +906,7 @@ export class MotorPartido {
       this.pelota.vz = (dz / d) * fuerza;
       this.pelota.vy = 0;
     }
+    this.eventos.push({ tipo: 'pase' });
   }
 
   /** El companero mejor ubicado para recibir, segun hacia donde apuntas. */
@@ -970,6 +977,7 @@ export class MotorPartido {
 
     if (j.bando === 'usuario') this.remates.usuario += 1;
     else this.remates.rival += 1;
+    this.eventos.push({ tipo: 'patada', fuerza: potencia });
   }
 
   private soltarPelota(j: JugadorPartido): void {
@@ -1123,6 +1131,7 @@ export class MotorPartido {
         this.pelota.duenoId = j.id;
         this.pelota.ultimoToqueId = j.id;
         this.tiempoArqueroConPelota = 0;
+        this.eventos.push({ tipo: 'atajada' });
         return;
       }
       // Manotazo: la saca del camino del arco.
@@ -1296,6 +1305,7 @@ export class MotorPartido {
     }
 
     this.fase = 'gol';
+    this.eventos.push({ tipo: 'gol' });
     this.prepararSaqueInicial(bando === 'usuario' ? 'rival' : 'usuario');
     this.anunciar('¡GOL!', suyo && autor ? autor.nombre : 'En contra', 2.2);
   }
@@ -1443,6 +1453,8 @@ export class MotorPartido {
         id: j.id,
         x: j.x,
         z: j.z,
+        vx: j.vx,
+        vz: j.vz,
         rumbo: j.rumbo,
         paso: j.paso,
         estado: j.estado,
@@ -1459,6 +1471,13 @@ export class MotorPartido {
 
   rematesDe(bando: Bando): number {
     return this.remates[bando];
+  }
+
+  /** 0-1: que tan caliente esta la jugada, para el volumen de la hinchada. */
+  get emocion(): number {
+    const cercaDelArco = 1 - Math.min(1, (LARGO / 2 - Math.abs(this.pelota.x)) / 35);
+    const velocidad = Math.min(1, Math.hypot(this.pelota.vx, this.pelota.vz) / 22);
+    return limitar(cercaDelArco * 0.75 + velocidad * 0.35, 0, 1);
   }
 
   /** Para el render: si la pelota esta dentro del area, la camara se acerca. */

@@ -139,6 +139,24 @@ export interface AvisoPartido {
 
 /** Foto del partido en un instante, para la repeticion del gol. */
 export interface Instantanea {
-  jugadores: { id: string; x: number; z: number; rumbo: number; paso: number; estado: EstadoJugador; patada: number }[];
+  jugadores: {
+    id: string;
+    x: number;
+    z: number;
+    vx: number;
+    vz: number;
+    rumbo: number;
+    paso: number;
+    estado: EstadoJugador;
+    patada: number;
+  }[];
   pelota: { x: number; y: number; z: number };
 }
+
+/** Avisos del motor hacia el sonido y los efectos, que el bucle vacia cada cuadro. */
+export type EventoPartido =
+  | { tipo: 'patada'; fuerza: number }
+  | { tipo: 'pase' }
+  | { tipo: 'atajada' }
+  | { tipo: 'gol' }
+  | { tipo: 'silbato'; largo?: number };
