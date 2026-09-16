@@ -57,10 +57,36 @@ npm run dev        # http://localhost:5173
 Otros comandos:
 
 ```bash
+npm test           # toda la bateria de tests
+npm run test:watch # tests en modo continuo mientras editas
 npm run typecheck  # TypeScript en modo estricto
-npm run build      # bundle de produccion en dist/
+npm run build      # typecheck + tests + bundle en dist/
 npm run preview    # sirve dist/ para probar el build
 ```
+
+## Tests
+
+`npm test` corre cuatro archivos y tarda unos seis segundos. No hay navegador
+de por medio: la simulacion y el motor del partido corren sin pantalla, que es
+justamente por lo que estan separados del render.
+
+| Archivo | Que cubre |
+| --- | --- |
+| `test/nucleo.test.ts` | Aleatoriedad con semilla, medias y valores, once automatico, fixture y tabla |
+| `test/partido.test.ts` | Reglas del partido (gol valido, expulsion, cambios, lateral, arquero, penal) y balance |
+| `test/temporada.test.ts` | Temporada completa, ascensos y descensos, copa, cuatro temporadas seguidas, sanciones y contratos |
+| `test/migraciones.test.ts` | Que un guardado viejo se pueda seguir jugando |
+
+El test de balance es el mas importante: simula dos docenas de partidos
+completos con los dos equipos manejados por la IA y falla si los goles, los
+remates o la conversion se salen del rango de un arcade de futbol. Todos los
+bugs de calibracion que fuimos encontrando a mano (el aire invertido, el
+arquero que congelaba el ataque, el penal que nunca se pateaba) habrian caido
+solos ahi. Como el motor usa `Math.random`, el test lo reemplaza por un
+generador con semilla para que la corrida sea siempre igual.
+
+El paso de build corre los tests antes de empaquetar, asi que un test roto
+frena el deploy a GitHub Pages.
 
 ## Controles del partido
 
@@ -133,6 +159,7 @@ src/
     mercado.ts    Compra y venta, con filtros y jugadores del exterior
     copa.ts       Copa nacional de eliminacion directa
     contratos.ts  Vencimientos, renovaciones y jugadores que se van libres
+    migraciones.ts Lleva un guardado viejo al formato actual sin perder la carrera
     juego.ts      Estado global, avance de fecha y cierre de temporada
   game/         Partido arcade en 3D
     match/motor.ts      Reglas, fisica e IA. No sabe que existe el 3D
@@ -176,6 +203,12 @@ simular partidos enteros en milisegundos para medir el balance.
 
 ## Roadmap
 
+- [ ] IA con tactica propia segun el club y el marcador
+- [ ] Faltas por contacto, no solo por barrida
+- [ ] El corner como jugada, con centro al area
+- [ ] Que los clubes de la IA se compren entre ellos
+- [ ] Elegir duracion del partido
+- [ ] Numeros y nombres en la cancha
 - [ ] Ojeadores y reportes de jugadores antes de ficharlos
 - [ ] Prensa y conferencias que muevan la moral del plantel
 - [ ] Modo dos jugadores en el mismo telefono

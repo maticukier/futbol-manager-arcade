@@ -3,7 +3,6 @@ import { cargar, guardar } from '@/sim/guardado';
 import {
   cerrarTemporada,
   clubPorId,
-  plantelDe,
   resolverJornada,
   type ResultadoArcade,
   type ResumenJornada,
@@ -12,8 +11,8 @@ import {
   partidoDelUsuario,
 } from '@/sim/juego';
 import type { ResultadoCopaUsuario } from '@/sim/copa';
-import { disponible, onceTitular } from '@/sim/liga';
-import type { ConfiguracionEquipo, ConfiguracionPartido, ResultadoPartido } from '@/game/match/entidades';
+import type { ConfiguracionPartido, ResultadoPartido } from '@/game/match/entidades';
+import { configurarPartido } from '@/game/match/armarPartido';
 import { esc, escudo, plata } from './formato';
 
 import * as pantallaInicio from './pantallas/inicio';
@@ -178,12 +177,12 @@ export class App {
     const usuarioEsLocal = cruce.localId === estado.clubUsuarioId;
     const rivalId = usuarioEsLocal ? cruce.visitanteId : cruce.localId;
 
-    const config: ConfiguracionPartido = {
-      usuario: this.configurarEquipo(estado.clubUsuarioId, 'usuario'),
-      rival: this.configurarEquipo(rivalId, 'rival'),
+    const config: ConfiguracionPartido = configurarPartido(
+      estado,
+      rivalId,
       usuarioEsLocal,
-      estadio: clubPorId(estado, cruce.localId).estadio.nombre,
-    };
+      clubPorId(estado, cruce.localId).estadio.nombre,
+    );
 
     this.contenedorPartido.hidden = false;
     document.body.style.overflow = 'hidden';
@@ -242,36 +241,4 @@ export class App {
     this.ir('partido');
   }
 
-  private configurarEquipo(clubId: string, bando: 'usuario' | 'rival'): ConfiguracionEquipo {
-    const estado = this.exigirEstado();
-    const club = clubPorId(estado, clubId);
-    const plantel = plantelDe(estado, clubId);
-    const once = onceTitular(club, plantel);
-    const titulares = new Set(once.map((j) => j.id));
-
-    const aFicha = (j: (typeof plantel)[number]) => ({
-      id: j.id,
-      nombre: j.nombre,
-      attrs: j.attrs,
-      pos: j.pos,
-      media: j.media,
-      forma: j.forma,
-    });
-
-    return {
-      bando,
-      nombre: club.nombre,
-      abrev: club.abrev,
-      colorPrimario: club.colorPrimario,
-      colorSecundario: club.colorSecundario,
-      tacticas: club.tacticas,
-      jugadores: once.map(aFicha),
-      // Al banco van los que estan disponibles y no son titulares.
-      suplentes: plantel
-        .filter((j) => !titulares.has(j.id) && disponible(j))
-        .sort((a, b) => b.media - a.media)
-        .slice(0, 9)
-        .map(aFicha),
-    };
-  }
 }

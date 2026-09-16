@@ -18,7 +18,9 @@ import {
   salarioSemanal,
   valorDeMercado,
 } from './jugadores';
-import { ENTRENAMIENTO_POR_DEFECTO, FOCOS, TACTICAS_POR_DEFECTO } from './tacticas';
+import { FOCOS } from './tacticas';
+import { crearClub } from './clubes';
+import { VERSION_PARTIDA } from './migraciones';
 import {
   calcularTabla,
   fuerzaEquipo,
@@ -47,11 +49,10 @@ import {
   gastoFijo,
   ingresoTv,
   masaSalarial,
-  precioEntradaSugerido,
   registrar,
 } from './finanzas';
 
-export const VERSION_PARTIDA = 2;
+export { VERSION_PARTIDA } from './migraciones';
 
 let contadorMensaje = 0;
 export function crearMensaje(
@@ -81,27 +82,11 @@ export function nuevaPartida(indiceClubUsuario: number, seed = seedAleatoria()):
     ...CLUBES_SEGUNDA.map((p) => ({ ...p, division: 2 as const })),
   ];
 
-  const clubs: Club[] = plantillas.map((plantilla, i) => ({
-    id: `c${i}`,
-    division: plantilla.division,
-    nombre: plantilla.nombre,
-    abrev: plantilla.abrev,
-    colorPrimario: plantilla.colorPrimario,
-    colorSecundario: plantilla.colorSecundario,
-    esUsuario: i === indiceClubUsuario,
-    reputacion: plantilla.reputacion,
-    dinero: Math.round(plantilla.reputacion * 2_500_000 + rng.int(-2, 2) * 8_000_000),
-    estadio: { nombre: plantilla.estadio, capacidad: plantilla.capacidad, nivel: Math.round(plantilla.reputacion / 14) },
-    socios: Math.round(plantilla.capacidad * rng.float(0.55, 0.85)),
-    precioEntrada: 0,
-    sponsorSemanal: Math.round(plantilla.reputacion * 130_000),
-    cantera: Math.max(1, Math.round(plantilla.reputacion / 12)),
-    tacticas: { ...TACTICAS_POR_DEFECTO },
-    entrenamiento: { ...ENTRENAMIENTO_POR_DEFECTO },
-    titulares: [],
-  }));
-
-  for (const club of clubs) club.precioEntrada = precioEntradaSugerido(club);
+  const clubs: Club[] = plantillas.map((plantilla, i) => {
+    const club = crearClub(plantilla, `c${i}`, plantilla.division, rng);
+    club.esUsuario = i === indiceClubUsuario;
+    return club;
+  });
 
   const jugadores: Jugador[] = [];
   for (const club of clubs) jugadores.push(...generarPlantel(rng, club.id, club.reputacion));

@@ -1,5 +1,5 @@
 import type { EstadoJuego } from './types';
-import { VERSION_PARTIDA } from './juego';
+import { migrar } from './migraciones';
 
 const CLAVE = 'fma:partida';
 
@@ -15,9 +15,8 @@ export function cargar(): EstadoJuego | null {
   try {
     const crudo = localStorage.getItem(CLAVE);
     if (!crudo) return null;
-    const estado = JSON.parse(crudo) as EstadoJuego;
-    if (estado.version !== VERSION_PARTIDA) return null;
-    return estado;
+    // No se descarta la carrera por un cambio de formato: se migra.
+    return migrar(JSON.parse(crudo));
   } catch {
     return null;
   }
