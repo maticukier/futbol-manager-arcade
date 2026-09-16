@@ -1,6 +1,7 @@
 import { FORMACIONES } from '@/sim/tacticas';
 import type { Formacion } from '@/sim/types';
 import {
+  ACELERACION,
   ALCANCE_ALTO,
   ALCANCE_ALTO_ARQUERO,
   ANCHO,
@@ -8,6 +9,8 @@ import {
   AREA_LARGO,
   ARCO_ALTO,
   ARCO_ANCHO,
+  FRENADO,
+  GIRO,
   GRAVEDAD,
   LARGO,
   MINUTOS_POR_TIEMPO,
@@ -37,6 +40,12 @@ import type {
   Pelota,
   ResultadoPartido,
 } from './entidades';
+
+/** A que distancia se para el que marca, del lado del arco propio. */
+const DISTANCIA_DE_MARCA = 2.1;
+
+/** Desde que distancia el atacante sin pelota empieza a despegarse del que lo sigue. */
+const DISTANCIA_DE_DESMARQUE = 7;
 
 /**
  * Motor del partido: reglas, fisica e inteligencia artificial.
@@ -142,6 +151,7 @@ export class MotorPartido {
         patada: 0,
         amarillas: 0,
         expulsado: false,
+        marcaA: null,
         ranura: i,
       };
     });
@@ -206,6 +216,7 @@ export class MotorPartido {
     this.registrarPosesion(dt);
     this.elegirControlado();
     this.moverJugadores(dt, entrada, false);
+    this.separarCuerpos();
     this.aplicarAcciones(entrada);
     this.moverPelota(dt);
     this.revisarArqueroConPelota(dt);
@@ -330,6 +341,7 @@ export class MotorPartido {
     const dueno = this.porId(this.pelota.duenoId);
     const bandoConPelota: Bando | null = dueno ? dueno.bando : null;
     const perseguidores = detenido ? new Set<string>() : this.elegirPerseguidores(bandoConPelota);
+    if (!detenido) this.asignarMarcas(bandoConPelota);
 
     for (const j of this.jugadores) {
       if (j.expulsado) continue;
@@ -402,6 +414,44 @@ export class MotorPartido {
     return perseguidores;
   }
 
+  /**
+   * Reparte a quien marca cada uno del equipo que no tiene la pelota.
+   *
+   * Va por orden de peligro: primero el rival mas cerca del arco propio, y a
+   * cada uno le asigna el defensor libre mas cercano. Sin esto los atacantes
+   * quedan siempre solos y defender no se siente como nada.
+   */
+  private asignarMarcas(bandoConPelota: Bando | null): void {
+    for (const j of this.jugadores) j.marcaA = null;
+    if (bandoConPelota === null) return;
+
+    const defiende: Bando = bandoConPelota === 'usuario' ? 'rival' : 'usuario';
+    const arco = this.arcoPropioDe(defiende);
+
+    // Solo marcan los de la mitad de atras de la formacion.
+    const marcadores = this.activos(defiende).filter((j) => !j.esArquero && j.baseLargo <= 0.58);
+    if (marcadores.length === 0) return;
+
+    // Los rivales mas cerca de mi arco son los que mas urgen.
+    const amenazas = this.activos(bandoConPelota)
+      .filter((j) => !j.esArquero && Math.abs(j.x - arco) < 48)
+      .sort((a, b) => Math.abs(a.x - arco) - Math.abs(b.x - arco));
+
+    const libres = [...marcadores];
+    for (const amenaza of amenazas) {
+      if (libres.length === 0) break;
+      // Al rival mas peligroso lo agarra el defensor libre que tenga mas cerca.
+      let elegido = 0;
+      for (let i = 1; i < libres.length; i++) {
+        const actual = distancia2(libres[i].x, libres[i].z, amenaza.x, amenaza.z);
+        const mejor = distancia2(libres[elegido].x, libres[elegido].z, amenaza.x, amenaza.z);
+        if (actual < mejor) elegido = i;
+      }
+      libres[elegido].marcaA = amenaza.id;
+      libres.splice(elegido, 1);
+    }
+  }
+
   /** Puesto de reposo, corrido hacia la pelota y segun lo que pida la tactica. */
   private destinoDeFormacion(j: JugadorPartido, bandoConPelota: Bando | null): { x: number; z: number } {
     const tacticas = this.equipoDe(j.bando).tacticas;
@@ -415,9 +465,76 @@ export class MotorPartido {
     const empuje = atacando ? 5 + mentalidad * 17 : -(4 + (1 - linea) * 14);
     const seguirPelota = (this.pelota.x - base.x) * 0.2;
 
-    return {
+    const puesto = {
       x: limitar(base.x + empuje * direccion + seguirPelota, -LARGO / 2 + 2, LARGO / 2 - 2),
       z: limitar(base.z + this.pelota.z * 0.32, -ANCHO / 2 + 1.5, ANCHO / 2 - 1.5),
+    };
+
+    if (atacando) return this.buscarEspacio(j, puesto, direccion);
+    if (!j.marcaA) return puesto;
+
+    const hombre = this.porId(j.marcaA);
+    if (!hombre || hombre.expulsado) return puesto;
+
+    // Marcar es pararse del lado del arco propio, entre el rival y el arco.
+    const arco = this.arcoPropioDe(j.bando);
+    // Un defensor flojo no se pega como uno bueno: se para mas lejos y suelta
+    // mas la marca. De ahi sale que un equipo chico deje espacios.
+    const oficio = 0.5 + (j.attrs.quite / 100) * 0.6;
+    const dx = arco - hombre.x;
+    const dz = -hombre.z * 0.35;
+    const d = Math.hypot(dx, dz) || 1;
+    const distancia = DISTANCIA_DE_MARCA + (1 - oficio) * 3;
+    const marca = {
+      x: hombre.x + (dx / d) * distancia,
+      z: hombre.z + (dz / d) * distancia,
+    };
+
+    // Cuanto mas cerca del arco propio esta el hombre, mas me le pego. Lejos
+    // se lo deja mas suelto para no romper la linea persiguiendo a uno solo.
+    const distanciaAlArco = Math.abs(hombre.x - arco);
+    const peso = limitar((1.05 - distanciaAlArco / 55) * oficio, 0.25, 0.85);
+    return {
+      x: limitar(puesto.x * (1 - peso) + marca.x * peso, -LARGO / 2 + 2, LARGO / 2 - 2),
+      z: limitar(puesto.z * (1 - peso) + marca.z * peso, -ANCHO / 2 + 1.5, ANCHO / 2 - 1.5),
+    };
+  }
+
+  /**
+   * Desmarque. El que ataca sin la pelota no se queda parado en su casillero:
+   * se despega del que lo sigue y, si esta por delante de la pelota, pica al
+   * espacio. Sin esto la marca personal apaga el ataque, porque el defensor se
+   * para encima de un rival que nunca se mueve.
+   */
+  private buscarEspacio(
+    j: JugadorPartido,
+    puesto: { x: number; z: number },
+    direccion: number,
+  ): { x: number; z: number } {
+    if (this.pelota.duenoId === j.id) return puesto;
+
+    let x = puesto.x;
+    let z = puesto.z;
+
+    const marcador = this.rivalMasCercano(j);
+    if (marcador) {
+      const d = distancia2(j.x, j.z, marcador.x, marcador.z);
+      if (d < DISTANCIA_DE_DESMARQUE) {
+        // Despegarse es abrirse al costado, nunca retroceder: el que marca se
+        // para del lado del arco, asi que alejarse de el en linea recta es
+        // justo lo que el defensor quiere.
+        const fuerza = (1 - d / DISTANCIA_DE_DESMARQUE) * 6;
+        z += (j.z - marcador.z >= 0 ? 1 : -1) * fuerza;
+      }
+    }
+
+    // Delante de la pelota se pica al espacio; atras se ofrece para el apoyo.
+    const adelante = (j.x - this.pelota.x) * direccion;
+    x += direccion * (adelante > 0 ? 4 : -1.5);
+
+    return {
+      x: limitar(x, -LARGO / 2 + 2, LARGO / 2 - 2),
+      z: limitar(z, -ANCHO / 2 + 1.5, ANCHO / 2 - 1.5),
     };
   }
 
@@ -425,16 +542,36 @@ export class MotorPartido {
     const dx = x - j.x;
     const dz = z - j.z;
     const d = Math.hypot(dx, dz);
+
     if (d < 0.35) {
-      j.vx *= 0.82;
-      j.vz *= 0.82;
+      this.acelerarHacia(j, 0, 0, dt);
     } else {
       const velocidad = this.velocidadDe(j) * factor;
-      const suave = Math.min(1, dt * 6);
-      j.vx += ((dx / d) * velocidad - j.vx) * suave;
-      j.vz += ((dz / d) * velocidad - j.vz) * suave;
+      this.acelerarHacia(j, (dx / d) * velocidad, (dz / d) * velocidad, dt);
     }
     this.integrar(j, dt);
+  }
+
+  /**
+   * Lleva la velocidad hacia la que se quiere, pero de a poco y con distinto
+   * costo segun el caso: acelerar derecho es medio, frenar es rapido y cambiar
+   * de direccion en velocidad es lento. Eso es lo que le da peso al jugador.
+   */
+  private acelerarHacia(j: JugadorPartido, objetivoVx: number, objetivoVz: number, dt: number): void {
+    const dvx = objetivoVx - j.vx;
+    const dvz = objetivoVz - j.vz;
+    const cambio = Math.hypot(dvx, dvz);
+    if (cambio < 0.01) return;
+
+    const velocidad = Math.hypot(j.vx, j.vz);
+    // Cuanto se parece el cambio que pide a la direccion en la que ya va.
+    const alineacion = velocidad > 0.5 ? (j.vx * dvx + j.vz * dvz) / (velocidad * cambio) : 1;
+    const agilidad = 0.75 + (j.attrs.regate / 100) * 0.5;
+    const tasa = (alineacion > 0.6 ? ACELERACION : alineacion < -0.6 ? FRENADO : GIRO) * agilidad;
+
+    const paso = Math.min(cambio, tasa * dt);
+    j.vx += (dvx / cambio) * paso;
+    j.vz += (dvz / cambio) * paso;
   }
 
   private moverControlado(j: JugadorPartido, dt: number, entrada: EntradaPartido): void {
@@ -444,13 +581,7 @@ export class MotorPartido {
     // Corriendo se gana velocidad pero se pierde algo de control con la pelota.
     const esfuerzo = puedeCorrer ? (conPelota ? 1.24 : 1.35) : 1;
     const velocidad = this.velocidadDe(j) * (conPelota ? 0.9 : 1) * esfuerzo;
-    const suave = Math.min(1, dt * 9);
-    j.vx += (entrada.moverX * velocidad - j.vx) * suave;
-    j.vz += (entrada.moverZ * velocidad - j.vz) * suave;
-    if (entrada.moverX === 0 && entrada.moverZ === 0) {
-      j.vx *= 0.84;
-      j.vz *= 0.84;
-    }
+    this.acelerarHacia(j, entrada.moverX * velocidad, entrada.moverZ * velocidad, dt);
     this.integrar(j, dt);
   }
 
@@ -475,7 +606,15 @@ export class MotorPartido {
       return;
     }
 
-    this.irHacia(j, arco, j.z * 0.6, dt, 0.95);
+    // Encarar no es correr derecho contra el defensor: se busca su lado flojo.
+    // Pero eso vale lejos del arco. Cerca hay que ir a la boca del arco, si no
+    // el que lleva la pelota termina gambeteando hasta el banderin del corner.
+    const abrirse = limitar(distanciaArco / 30, 0, 1);
+    let objetivoZ = j.z * 0.6 * abrirse;
+    if (rival && presionado) {
+      objetivoZ += (j.z - rival.z >= 0 ? 1 : -1) * 6 * abrirse;
+    }
+    this.irHacia(j, arco, limitar(objetivoZ, -ANCHO / 2 + 3, ANCHO / 2 - 3), dt, 0.98);
   }
 
   private rivalMasCercano(j: JugadorPartido): JugadorPartido | null {
@@ -586,6 +725,51 @@ export class MotorPartido {
     const tiempo = (linea - this.pelota.x) / this.pelota.vx;
     if (tiempo <= 0 || tiempo > 1.6) return null;
     return this.pelota.z + this.pelota.vz * tiempo;
+  }
+
+  /**
+   * Empuja a los que quedaron encimados. Sin esto los jugadores se atraviesan
+   * y el partido se siente hecho de fantasmas: chocar es lo que hace que
+   * proteger la pelota y meter el cuerpo signifiquen algo.
+   */
+  private separarCuerpos(): void {
+    const enCancha = this.activos();
+    const minimo = RADIO_JUGADOR * 2;
+
+    for (let i = 0; i < enCancha.length; i++) {
+      for (let k = i + 1; k < enCancha.length; k++) {
+        const a = enCancha[i];
+        const b = enCancha[k];
+        const dx = b.x - a.x;
+        const dz = b.z - a.z;
+        const d = Math.hypot(dx, dz);
+        if (d >= minimo) continue;
+
+        // Si quedaron exactamente encima, los separo en una direccion cualquiera.
+        const nx = d > 0.001 ? dx / d : 1;
+        const nz = d > 0.001 ? dz / d : 0;
+        const invasion = minimo - Math.max(d, 0.001);
+
+        // El que se esta barriendo empuja; el que esta en el piso se deja llevar.
+        const pesoA = a.estado === 'barrida' ? 0.15 : a.estado === 'caido' ? 0.85 : 0.5;
+        const pesoB = b.estado === 'barrida' ? 0.15 : b.estado === 'caido' ? 0.85 : 0.5;
+        const total = pesoA + pesoB || 1;
+
+        a.x -= nx * invasion * (pesoA / total);
+        a.z -= nz * invasion * (pesoA / total);
+        b.x += nx * invasion * (pesoB / total);
+        b.z += nz * invasion * (pesoB / total);
+
+        // Y les saco la parte de la velocidad con la que se venian metiendo uno
+        // dentro del otro, para que no se queden empujandose eternamente.
+        const acercamiento = (b.vx - a.vx) * nx + (b.vz - a.vz) * nz;
+        if (acercamiento >= 0) continue;
+        a.vx += nx * acercamiento * 0.5;
+        a.vz += nz * acercamiento * 0.5;
+        b.vx -= nx * acercamiento * 0.5;
+        b.vz -= nz * acercamiento * 0.5;
+      }
+    }
   }
 
   private integrar(j: JugadorPartido, dt: number): void {

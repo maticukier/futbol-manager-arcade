@@ -1,8 +1,9 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { nuevaPartida } from '@/sim/juego';
-import { LARGO } from '@/game/match/mundo';
+import { LARGO, RADIO_JUGADOR } from '@/game/match/mundo';
 import { MotorPartido } from '@/game/match/motor';
 import { ENTRADA_VACIA } from '@/game/match/entidades';
+import type { JugadorPartido } from '@/game/match/entidades';
 import { configurarEquipo } from '@/game/match/armarPartido';
 import { fijarAzar, jugarPartidoCompleto, promedio } from './ayuda';
 
@@ -216,6 +217,118 @@ describe('arquero', () => {
     for (let i = 0; i < 180; i++) motor.paso(PASO, ENTRADA_VACIA);
 
     expect(LARGO / 2 - arquero.x).toBeLessThan(22);
+  });
+});
+
+describe('marca y fisica del jugador', () => {
+  it('un defensor se le pega al atacante que entra a su campo', () => {
+    const { motor } = motorDePrueba(404);
+    motor.fase = 'jugando';
+    motor.aviso = null;
+
+    // El rival tiene la pelota atras y adelanta a un hombre al campo del usuario.
+    const rivales = motor.jugadores.filter((j) => j.bando === 'rival' && !j.esArquero);
+    const duenoPelota = rivales[0];
+    const atacante = rivales[1];
+
+    // Congelo la jugada en cada paso: lo unico que quiero medir es a quien lo sigue.
+    const congelar = () => {
+      Object.assign(duenoPelota, { x: 35, z: 0, vx: 0, vz: 0 });
+      Object.assign(atacante, { x: -30, z: 6, vx: 0, vz: 0 });
+      Object.assign(motor.pelota, {
+        x: 35, z: 0, y: 0.12, vx: 0, vy: 0, vz: 0,
+        duenoId: duenoPelota.id, ultimoToqueId: duenoPelota.id,
+      });
+    };
+    const correr = (pasos: number) => {
+      for (let i = 0; i < pasos; i++) {
+        congelar();
+        motor.paso(PASO, ENTRADA_VACIA);
+      }
+    };
+    const distanciaAlAtacante = (j: JugadorPartido) => Math.hypot(j.x - atacante.x, j.z - atacante.z);
+
+    correr(30);
+    const marcador = motor.jugadores.find((j) => j.marcaA === atacante.id);
+    expect(marcador).toBeDefined();
+    expect(marcador!.bando).toBe('usuario');
+
+    const antes = distanciaAlAtacante(marcador!);
+    correr(150);
+    const despues = distanciaAlAtacante(marcador!);
+
+    // No se queda en su casillero de la formacion: le va encima.
+    expect(despues).toBeLessThan(antes);
+    expect(despues).toBeLessThan(9);
+  });
+
+  it('el que lleva la pelota va al arco y no al banderin del corner', () => {
+    const { motor } = motorDePrueba(505);
+    motor.fase = 'jugando';
+    motor.aviso = null;
+
+    const atacante = motor.jugadores.find((j) => j.bando === 'usuario' && !j.esArquero)!;
+    const perseguidor = motor.jugadores.find((j) => j.bando === 'rival' && !j.esArquero)!;
+    Object.assign(atacante, { x: 28, z: 12, vx: 0, vz: 0 });
+    Object.assign(perseguidor, { x: 30, z: 11, vx: 0, vz: 0 });
+    Object.assign(motor.pelota, {
+      x: atacante.x, z: atacante.z, y: 0.12, vx: 0, vy: 0, vz: 0,
+      duenoId: atacante.id, ultimoToqueId: atacante.id,
+    });
+
+    let maximo = Math.abs(atacante.z);
+    for (let i = 0; i < 180 && motor.pelota.duenoId === atacante.id; i++) {
+      motor.paso(PASO, ENTRADA_VACIA);
+      maximo = Math.max(maximo, Math.abs(atacante.z));
+    }
+
+    // Esquivar al que lo aprieta esta bien; irse a la linea de banda, no.
+    expect(maximo).toBeLessThan(22);
+  });
+
+  it('los jugadores no se atraviesan', () => {
+    const { motor } = motorDePrueba(707);
+    let minima = Infinity;
+
+    for (let paso = 0; paso < 600; paso++) {
+      motor.paso(PASO, ENTRADA_VACIA);
+      if (motor.fase !== 'jugando') continue;
+      const enCancha = motor.jugadores.filter((j) => !j.expulsado);
+      for (let a = 0; a < enCancha.length; a++) {
+        for (let b = a + 1; b < enCancha.length; b++) {
+          const d = Math.hypot(enCancha[a].x - enCancha[b].x, enCancha[a].z - enCancha[b].z);
+          if (d < minima) minima = d;
+        }
+      }
+    }
+
+    expect(minima).toBeGreaterThan(RADIO_JUGADOR);
+  });
+
+  it('un jugador no cambia de velocidad de golpe', () => {
+    const { motor } = motorDePrueba(303);
+    motor.fase = 'jugando';
+    motor.aviso = null;
+
+    const solo = motor.jugadores.find((j) => j.bando === 'usuario' && !j.esArquero)!;
+    // Lo dejo lejos de todos para medir solo su inercia, sin empujones.
+    for (const otro of motor.jugadores) {
+      if (otro === solo) continue;
+      otro.x = 40;
+      otro.z = 25;
+    }
+    Object.assign(motor.pelota, { x: 40, z: 25, y: 0.12, vx: 0, vy: 0, vz: 0, duenoId: null, ultimoToqueId: null });
+    Object.assign(solo, { x: -20, z: 0, vx: 8, vz: 0 });
+
+    let maximo = 0;
+    for (let i = 0; i < 120; i++) {
+      const vx = solo.vx;
+      const vz = solo.vz;
+      motor.paso(PASO, ENTRADA_VACIA);
+      maximo = Math.max(maximo, Math.hypot(solo.vx - vx, solo.vz - vz));
+    }
+
+    expect(maximo).toBeLessThan(0.5);
   });
 });
 

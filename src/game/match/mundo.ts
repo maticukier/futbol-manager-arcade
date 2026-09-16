@@ -40,6 +40,15 @@ export const MINUTOS_POR_TIEMPO = 45;
 export const VELOCIDAD_MIN = 4;
 export const VELOCIDAD_MAX = 8.4;
 
+/**
+ * Aceleracion en metros por segundo al cuadrado. Son tres valores distintos a
+ * proposito: arrancar cuesta, frenar es rapido y girar en velocidad es lento.
+ * De ahi sale que un jugador tenga peso y no cambie de direccion como un raton.
+ */
+export const ACELERACION = 9;
+export const FRENADO = 15;
+export const GIRO = 5.5;
+
 /** A que altura llega un jugador de campo y un arquero para tocar la pelota. */
 export const ALCANCE_ALTO = 2.2;
 export const ALCANCE_ALTO_ARQUERO = 2.6;

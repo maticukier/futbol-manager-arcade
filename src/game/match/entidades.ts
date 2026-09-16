@@ -36,6 +36,8 @@ export interface JugadorPartido {
   patada: number;
   amarillas: number;
   expulsado: boolean;
+  /** Id del rival al que le esta marcando la espalda, si le toca marcar. */
+  marcaA: string | null;
   /** Indice de la ranura de la formacion que ocupa. */
   ranura: number;
 }
