@@ -166,7 +166,7 @@ export function onceTitular(club: Club, plantel: Jugador[]): Jugador[] {
   const porId = new Map(plantel.map((j) => [j.id, j]));
   const elegidos = club.titulares
     .map((id) => porId.get(id))
-    .filter((j): j is Jugador => !!j && j.lesionSemanas === 0);
+    .filter((j): j is Jugador => !!j && disponible(j));
   if (elegidos.length === 11) return elegidos;
   return onceAutomatico(club, plantel);
 }
@@ -178,8 +178,13 @@ export function onceTitular(club: Club, plantel: Jugador[]): Jugador[] {
  * puesto: si se llenan las ranuras en orden, los mejores jugadores terminan
  * de defensores y el ataque queda con las sobras.
  */
+/** Un jugador esta disponible si no esta lesionado ni suspendido. */
+export function disponible(j: Jugador): boolean {
+  return j.lesionSemanas === 0 && j.sancionPartidos === 0;
+}
+
 export function onceAutomatico(club: Club, plantel: Jugador[]): Jugador[] {
-  const disponibles = plantel.filter((j) => j.lesionSemanas === 0);
+  const disponibles = plantel.filter(disponible);
   const ranuras = FORMACIONES[club.tacticas.formacion];
 
   const pares: { ranura: number; jugador: Jugador; puntaje: number }[] = [];
@@ -214,6 +219,8 @@ export interface ResultadoSimulado {
   golesVisitante: number;
   goleadoresLocal: string[];
   goleadoresVisitante: string[];
+  amonestados: string[];
+  expulsados: string[];
 }
 
 const VENTAJA_LOCAL = 1.12;
@@ -234,12 +241,41 @@ export function simularPartido(
   const golesLocal = poisson(rng, esperadosLocal);
   const golesVisitante = poisson(rng, esperadosVisitante);
 
+  const tarjetasLocal = repartirTarjetas(local.club, local.plantel, rng);
+  const tarjetasVisitante = repartirTarjetas(visitante.club, visitante.plantel, rng);
+
   return {
     golesLocal,
     golesVisitante,
     goleadoresLocal: elegirGoleadores(local.club, local.plantel, golesLocal, rng),
     goleadoresVisitante: elegirGoleadores(visitante.club, visitante.plantel, golesVisitante, rng),
+    amonestados: [...tarjetasLocal.amarillas, ...tarjetasVisitante.amarillas],
+    expulsados: [...tarjetasLocal.rojas, ...tarjetasVisitante.rojas],
   };
+}
+
+/**
+ * Tarjetas de un partido simulado. Los que van fuerte al quite ven mas
+ * amarillas, y la roja es poco frecuente.
+ */
+function repartirTarjetas(
+  club: Club,
+  plantel: Jugador[],
+  rng: Rng,
+): { amarillas: string[]; rojas: string[] } {
+  const once = onceTitular(club, plantel).filter((j) => j.pos !== 'ARQ');
+  const amarillas: string[] = [];
+  const rojas: string[] = [];
+  if (once.length === 0) return { amarillas, rojas };
+
+  const cantidad = rng.int(0, 3);
+  for (let i = 0; i < cantidad; i++) {
+    const candidato = once[rng.int(0, once.length - 1)];
+    if (rng.next() > 0.35 + candidato.attrs.quite / 200) continue;
+    if (rng.chance(0.05)) rojas.push(candidato.id);
+    else amarillas.push(candidato.id);
+  }
+  return { amarillas, rojas };
 }
 
 /**

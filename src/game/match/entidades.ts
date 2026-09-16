@@ -34,6 +34,10 @@ export interface JugadorPartido {
   paso: number;
   /** Cuenta regresiva de la animacion de patear. */
   patada: number;
+  amarillas: number;
+  expulsado: boolean;
+  /** Indice de la ranura de la formacion que ocupa. */
+  ranura: number;
 }
 
 export interface Pelota {
@@ -57,14 +61,18 @@ export interface ConfiguracionEquipo {
   colorPrimario: string;
   colorSecundario: string;
   tacticas: Tacticas;
-  jugadores: {
-    id: string;
-    nombre: string;
-    attrs: Atributos;
-    pos: PosicionCodigo;
-    media: number;
-    forma: number;
-  }[];
+  jugadores: JugadorDeEquipo[];
+  /** Los que esperan en el banco, para los cambios. */
+  suplentes: JugadorDeEquipo[];
+}
+
+export interface JugadorDeEquipo {
+  id: string;
+  nombre: string;
+  attrs: Atributos;
+  pos: PosicionCodigo;
+  media: number;
+  forma: number;
 }
 
 export interface ConfiguracionPartido {
@@ -81,6 +89,11 @@ export interface ResultadoPartido {
   goleadoresRival: string[];
   remates: { usuario: number; rival: number };
   posesion: { usuario: number; rival: number };
+  amarillas: { usuario: number; rival: number };
+  rojas: { usuario: number; rival: number };
+  /** Ids de los que vieron amarilla o roja, para arrastrar sanciones. */
+  amonestados: string[];
+  expulsados: string[];
 }
 
 /** Los tres botones cambian de funcion segun tengas o no la pelota. */
@@ -113,10 +126,8 @@ export type FaseJuego =
   | 'saque_inicial'
   | 'jugando'
   | 'gol'
-  | 'lateral'
-  | 'saque_arco'
-  | 'corner'
   | 'libre'
+  | 'penal'
   | 'entretiempo'
   | 'final';
 
@@ -124,4 +135,10 @@ export type FaseJuego =
 export interface AvisoPartido {
   titulo: string;
   detalle: string;
+}
+
+/** Foto del partido en un instante, para la repeticion del gol. */
+export interface Instantanea {
+  jugadores: { id: string; x: number; z: number; rumbo: number; paso: number; estado: EstadoJugador; patada: number }[];
+  pelota: { x: number; y: number; z: number };
 }

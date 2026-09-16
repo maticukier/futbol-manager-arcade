@@ -1,4 +1,5 @@
 import type { EntradaPartido } from './entidades';
+import { MenuPausa } from './menuPausa';
 import type { MotorPartido } from './motor';
 
 const CARGA_MAXIMA = 800;
@@ -41,14 +42,16 @@ export class InterfazPartido {
   private teclas = new Set<string>();
   private conPelotaPrevio: boolean | null = null;
 
-  constructor(contenedor: HTMLElement, motor: MotorPartido, alSalir: () => void) {
+  private readonly menu: MenuPausa;
+
+  constructor(contenedor: HTMLElement, motor: MotorPartido, alSalir: () => void, alPausar: (v: boolean) => void) {
     this.motor = motor;
 
     this.raiz = document.createElement('div');
     this.raiz.className = 'partido';
     this.raiz.innerHTML = `
       <div class="partido__hud">
-        <button class="partido__salir" type="button">Salir</button>
+        <button class="partido__salir" type="button">Pausa</button>
         <div class="partido__centro">
           <div class="partido__marcador"></div>
           <div class="partido__reloj"></div>
@@ -83,7 +86,20 @@ export class InterfazPartido {
     };
     this.botonCorrer = this.raiz.querySelector('[data-boton="correr"]')!;
 
-    this.raiz.querySelector('.partido__salir')!.addEventListener('click', alSalir);
+    this.menu = new MenuPausa(
+      contenedor,
+      motor,
+      () => {
+        this.menu.cerrar();
+        alPausar(false);
+      },
+      alSalir,
+    );
+
+    this.raiz.querySelector('.partido__salir')!.addEventListener('click', () => {
+      alPausar(true);
+      this.menu.abrir();
+    });
     this.conectarBotones();
     this.conectarJoystick();
     this.conectarTeclado();
@@ -215,6 +231,8 @@ export class InterfazPartido {
 
   /** Devuelve lo que se apreto en este cuadro y limpia los eventos de un uso. */
   leer(): EntradaPartido {
+    if (this.menu.abierto) return { moverX: 0, moverZ: 0, a: false, b: false, c: false, correr: false, potencia: 0.6 };
+
     let moverX = this.direccion.x;
     let moverZ = this.direccion.y;
 
@@ -294,6 +312,7 @@ export class InterfazPartido {
   destruir(): void {
     window.removeEventListener('keydown', this.alBajarTecla);
     window.removeEventListener('keyup', this.alSubirTecla);
+    this.menu.destruir();
     this.raiz.remove();
   }
 }

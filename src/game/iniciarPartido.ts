@@ -21,7 +21,14 @@ export function jugarPartidoArcade(
     let ultimoInstante = performance.now();
     let golesPrevios = 0;
 
-    const interfaz = new InterfazPartido(contenedor, motor, () => cerrar(null));
+    const interfaz = new InterfazPartido(
+      contenedor,
+      motor,
+      () => cerrar(null),
+      (valor) => {
+        pausado = valor;
+      },
+    );
 
     const cerrar = (resultado: ResultadoPartido | null) => {
       if (cerrado) return;
@@ -57,7 +64,8 @@ export function jugarPartidoArcade(
         escena.sacudir();
       }
 
-      escena.actualizar(dt);
+      const destino = motor.destinoDePase(false, entrada.moverX, entrada.moverZ);
+      escena.actualizar(dt, destino?.id ?? null);
       interfaz.actualizar();
 
       if (motor.terminado) cerrar(motor.resultado());

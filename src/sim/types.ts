@@ -37,6 +37,9 @@ export interface Jugador {
   contratoSemanas: number;
   golesTemporada: number;
   partidosTemporada: number;
+  amarillasTemporada: number;
+  /** Fechas que le quedan de suspension. */
+  sancionPartidos: number;
   /**
    * Puntos ocultos de evolucion. Suben jugando y con la edad a favor, bajan
    * pasados los treinta. Al llegar a 100 o a -100 se traducen en un punto de

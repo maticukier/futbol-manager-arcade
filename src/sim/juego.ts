@@ -181,7 +181,13 @@ export interface ResultadoArcade {
   golesVisitante: number;
   goleadoresLocal: string[];
   goleadoresVisitante: string[];
+  amonestados: string[];
+  expulsados: string[];
 }
+
+/** Amarillas que hay que juntar para perderse la fecha siguiente. */
+const AMARILLAS_PARA_SANCION = 5;
+const FECHAS_POR_ROJA = 2;
 
 export interface ResumenJornada {
   partidos: Partido[];
@@ -199,6 +205,9 @@ export function resolverJornada(estado: EstadoJuego, resultadoUsuario: Resultado
   const rng = new Rng(estado.seed + estado.temporada * 1000 + estado.jornadaActual);
   const partidos = partidosDeJornada(estado.fixture, estado.jornadaActual);
   const propio = partidoDelUsuario(estado);
+
+  // Guardo quien ya venia suspendido: son los unicos que descuentan hoy.
+  const veniaSuspendido = new Set(estado.jugadores.filter((j) => j.sancionPartidos > 0).map((j) => j.id));
 
   const fuerzas = new Map<string, ReturnType<typeof fuerzaEquipo>>();
   for (const club of estado.clubs) fuerzas.set(club.id, fuerzaEquipo(club, estado.jugadores));
@@ -222,6 +231,7 @@ export function resolverJornada(estado: EstadoJuego, resultadoUsuario: Resultado
     aplicarResultado(estado, partido, resultado, false);
   }
 
+  descontarSanciones(estado, veniaSuspendido);
   const ingresos = procesarFinanzasSemana(estado, propio, rng);
   const asistencia = ultimaAsistencia;
   procesarPlantel(estado, propio, rng);
@@ -258,6 +268,60 @@ function aplicarResultado(
     const club = clubPorId(estado, clubId);
     for (const j of onceTitular(club, plantelDe(estado, clubId))) {
       j.partidosTemporada += 1;
+    }
+  }
+
+  aplicarTarjetas(estado, resultado.amonestados, resultado.expulsados);
+}
+
+/** Suma amarillas, cierra ciclos de cinco y aplica las rojas. */
+function aplicarTarjetas(estado: EstadoJuego, amonestados: string[], expulsados: string[]): void {
+  for (const id of amonestados) {
+    const j = jugadorPorId(estado, id);
+    if (!j) continue;
+    j.amarillasTemporada += 1;
+    if (j.amarillasTemporada % AMARILLAS_PARA_SANCION !== 0) continue;
+    j.sancionPartidos = Math.max(j.sancionPartidos, 1);
+    if (j.clubId === estado.clubUsuarioId) {
+      crearMensaje(
+        estado,
+        'plantel',
+        `${j.nombre} llego a ${j.amarillasTemporada} amarillas`,
+        'Se pierde la proxima fecha por acumulacion.',
+      );
+    }
+  }
+
+  for (const id of expulsados) {
+    const j = jugadorPorId(estado, id);
+    if (!j) continue;
+    j.sancionPartidos = Math.max(j.sancionPartidos, FECHAS_POR_ROJA);
+    if (j.clubId === estado.clubUsuarioId) {
+      crearMensaje(
+        estado,
+        'plantel',
+        `Expulsaron a ${j.nombre}`,
+        `Se pierde las proximas ${FECHAS_POR_ROJA} fechas.`,
+      );
+    }
+  }
+}
+
+/** Los suspendidos cumplen una fecha cada vez que su club juega. */
+function descontarSanciones(estado: EstadoJuego, veniaSuspendido: Set<string>): void {
+  const clubesQueJugaron = new Set<string>();
+  for (const p of estado.fixture) {
+    if (p.jornada !== estado.jornadaActual || !p.jugado) continue;
+    clubesQueJugaron.add(p.localId);
+    clubesQueJugaron.add(p.visitanteId);
+  }
+
+  for (const j of estado.jugadores) {
+    if (!veniaSuspendido.has(j.id) || j.sancionPartidos <= 0) continue;
+    if (!j.clubId || !clubesQueJugaron.has(j.clubId)) continue;
+    j.sancionPartidos -= 1;
+    if (j.sancionPartidos === 0 && j.clubId === estado.clubUsuarioId) {
+      crearMensaje(estado, 'plantel', `${j.nombre} cumplio la sancion`, 'Vuelve a estar disponible.');
     }
   }
 }
@@ -534,6 +598,8 @@ function envejecerPlantel(estado: EstadoJuego, rng: Rng): void {
     j.salario = salarioSemanal(j.valor, j.media);
     j.golesTemporada = 0;
     j.partidosTemporada = 0;
+    j.amarillasTemporada = 0;
+    j.sancionPartidos = 0;
     j.forma = rng.int(85, 100);
 
     if (j.edad >= 36 || (j.edad >= 34 && j.media < 55)) retirados.push(j.id);

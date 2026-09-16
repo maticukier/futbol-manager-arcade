@@ -42,6 +42,9 @@ export class Escena3D {
   private readonly sombraPelota: THREE.Mesh;
   private readonly aDesechar: (THREE.BufferGeometry | THREE.Material | THREE.Texture)[] = [];
 
+  private marcaPase: THREE.Mesh;
+  private colorUsuario = '#ffffff';
+  private colorRival = '#111111';
   private sacudida = 0;
   private posicionCamara = new THREE.Vector3(0, 20, 26);
   private campoVisible = CAMPO_VISIBLE;
@@ -71,6 +74,7 @@ export class Escena3D {
     this.sombraPelota = sombra;
 
     this.armarJugadores();
+    this.marcaPase = this.armarMarcaDePase();
     this.redimensionar();
   }
 
@@ -358,25 +362,51 @@ export class Escena3D {
   private armarJugadores(): void {
     // Los dos colores se resuelven juntos: el del rival se elige contra el que
     // le quedo al usuario, no contra el original.
-    const colorUsuario = separarDelCesped(this.motor.config.usuario.colorPrimario);
-    const colorRival = colorDeVisitante(this.motor.config.rival.colorPrimario, colorUsuario);
+    this.colorUsuario = separarDelCesped(this.motor.config.usuario.colorPrimario);
+    this.colorRival = colorDeVisitante(this.motor.config.rival.colorPrimario, this.colorUsuario);
 
     for (const j of this.motor.jugadores) {
       const equipo = j.bando === 'usuario' ? this.motor.config.usuario : this.motor.config.rival;
-      const color = j.bando === 'usuario' ? colorUsuario : colorRival;
+      const color = j.bando === 'usuario' ? this.colorUsuario : this.colorRival;
       const piezas = this.fabrica.crear(color, equipo.colorSecundario, j.esArquero);
       this.escena.add(piezas.raiz);
       this.piezas.set(j.id, piezas);
     }
   }
 
+  /** Anillo que marca a quien le llegaria el pase si apretas ahora. */
+  private armarMarcaDePase(): THREE.Mesh {
+    const geo = new THREE.RingGeometry(0.75, 1.05, 22);
+    const mat = new THREE.MeshBasicMaterial({
+      color: 0x2ecc71,
+      transparent: true,
+      opacity: 0.85,
+      depthWrite: false,
+    });
+    const malla = new THREE.Mesh(geo, mat);
+    malla.rotation.x = -Math.PI / 2;
+    malla.position.y = 0.05;
+    malla.visible = false;
+    this.escena.add(malla);
+    this.aDesechar.push(geo, mat);
+    return malla;
+  }
+
   // ------------------------------------------------------------------ cuadro
 
-  actualizar(dt: number): void {
+  actualizar(dt: number, destinoPase: string | null = null): void {
+    this.sincronizarJugadores();
+
     for (const j of this.motor.jugadores) {
       const piezas = this.piezas.get(j.id);
-      if (piezas) animarJugador(piezas, j, j.id === this.motor.controladoId);
+      if (!piezas) continue;
+      piezas.raiz.visible = !j.expulsado;
+      animarJugador(piezas, j, j.id === this.motor.controladoId);
     }
+
+    const destino = destinoPase ? this.motor.porId(destinoPase) : null;
+    this.marcaPase.visible = !!destino;
+    if (destino) this.marcaPase.position.set(destino.x, 0.05, destino.z);
 
     const p = this.motor.pelota;
     this.pelota.position.set(p.x, p.y, p.z);
@@ -388,6 +418,27 @@ export class Escena3D {
 
     this.moverCamara(dt);
     this.render.render(this.escena, this.camara);
+  }
+
+  /** Los cambios traen ids nuevos: creo y saco mallas segun quien este en cancha. */
+  private sincronizarJugadores(): void {
+    const presentes = new Set<string>();
+
+    for (const j of this.motor.jugadores) {
+      presentes.add(j.id);
+      if (this.piezas.has(j.id)) continue;
+      const equipo = j.bando === 'usuario' ? this.motor.config.usuario : this.motor.config.rival;
+      const color = j.bando === 'usuario' ? this.colorUsuario : this.colorRival;
+      const piezas = this.fabrica.crear(color, equipo.colorSecundario, j.esArquero);
+      this.escena.add(piezas.raiz);
+      this.piezas.set(j.id, piezas);
+    }
+
+    for (const [id, piezas] of this.piezas) {
+      if (presentes.has(id)) continue;
+      this.escena.remove(piezas.raiz);
+      this.piezas.delete(id);
+    }
   }
 
   private moverCamara(dt: number): void {

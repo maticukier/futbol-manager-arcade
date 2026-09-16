@@ -10,7 +10,7 @@ import {
   type ResumenTemporada,
   partidoDelUsuario,
 } from '@/sim/juego';
-import { onceTitular } from '@/sim/liga';
+import { disponible, onceTitular } from '@/sim/liga';
 import type { ConfiguracionEquipo, ConfiguracionPartido, ResultadoPartido } from '@/game/match/entidades';
 import { esc, escudo, plata } from './formato';
 
@@ -196,18 +196,25 @@ export class App {
       return;
     }
 
+    const tarjetas = {
+      amonestados: resultado.amonestados,
+      expulsados: resultado.expulsados,
+    };
+
     const arcade: ResultadoArcade = usuarioEsLocal
       ? {
           golesLocal: resultado.golesUsuario,
           golesVisitante: resultado.golesRival,
           goleadoresLocal: resultado.goleadoresUsuario,
           goleadoresVisitante: resultado.goleadoresRival,
+          ...tarjetas,
         }
       : {
           golesLocal: resultado.golesRival,
           golesVisitante: resultado.golesUsuario,
           goleadoresLocal: resultado.goleadoresRival,
           goleadoresVisitante: resultado.goleadoresUsuario,
+          ...tarjetas,
         };
 
     this.ultimoArcade = resultado;
@@ -230,7 +237,18 @@ export class App {
   private configurarEquipo(clubId: string, bando: 'usuario' | 'rival'): ConfiguracionEquipo {
     const estado = this.exigirEstado();
     const club = clubPorId(estado, clubId);
-    const once = onceTitular(club, plantelDe(estado, clubId));
+    const plantel = plantelDe(estado, clubId);
+    const once = onceTitular(club, plantel);
+    const titulares = new Set(once.map((j) => j.id));
+
+    const aFicha = (j: (typeof plantel)[number]) => ({
+      id: j.id,
+      nombre: j.nombre,
+      attrs: j.attrs,
+      pos: j.pos,
+      media: j.media,
+      forma: j.forma,
+    });
 
     return {
       bando,
@@ -239,14 +257,13 @@ export class App {
       colorPrimario: club.colorPrimario,
       colorSecundario: club.colorSecundario,
       tacticas: club.tacticas,
-      jugadores: once.map((j) => ({
-        id: j.id,
-        nombre: j.nombre,
-        attrs: j.attrs,
-        pos: j.pos,
-        media: j.media,
-        forma: j.forma,
-      })),
+      jugadores: once.map(aFicha),
+      // Al banco van los que estan disponibles y no son titulares.
+      suplentes: plantel
+        .filter((j) => !titulares.has(j.id) && disponible(j))
+        .sort((a, b) => b.media - a.media)
+        .slice(0, 9)
+        .map(aFicha),
     };
   }
 }
