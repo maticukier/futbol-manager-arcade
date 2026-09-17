@@ -12,7 +12,7 @@ import { ENTRENAMIENTO_POR_DEFECTO, TACTICAS_POR_DEFECTO } from './tacticas';
  * Version del formato de guardado. Sube solo cuando hace falta una migracion
  * que no se resuelve con un valor por defecto.
  */
-export const VERSION_PARTIDA = 4;
+export const VERSION_PARTIDA = 5;
 
 /**
  * Lleva una partida guardada al formato actual.
@@ -129,6 +129,11 @@ function completarJugador(j: Jugador, rng: Rng): void {
     j.rasgoOculto = j.rasgoOculto ?? sorteo.rasgoOculto;
   }
   j.partidosObservado ??= 0;
+  // La carrera empieza a registrarse desde ahora. Lo de antes no se puede
+  // reconstruir, asi que arranca vacia en vez de inventarse temporadas.
+  j.historial ??= [];
+  j.asistenciasTemporada ??= 0;
+  j.notaSumada ??= 0;
   j.progreso ??= 0;
   j.amarillasTemporada ??= 0;
   j.sancionPartidos ??= 0;

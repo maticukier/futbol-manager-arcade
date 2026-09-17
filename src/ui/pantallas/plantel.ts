@@ -1,10 +1,11 @@
 import type { App } from '../app';
 import type { Jugador } from '@/sim/types';
 import { clubPorId, plantelDe } from '@/sim/juego';
+import { carreraDe } from '@/sim/historial';
 import { onceTitular } from '@/sim/liga';
 import { FORMACIONES, ajustePorPuesto } from '@/sim/tacticas';
 import { SEMANAS_AVISO, primaDeRenovacion, renovarContrato, salarioPedido } from '@/sim/contratos';
-import { chipsDeRasgos, claseMedia, esc, estadoJugador, pistaDeRasgoOculto, plata } from '../formato';
+import { chipsDeRasgos, claseMedia, claseNota, esc, estadoJugador, pistaDeRasgoOculto, plata } from '../formato';
 
 let seleccionado: string | null = null;
 let orden: 'media' | 'pos' | 'edad' = 'media';
@@ -23,16 +24,23 @@ export function render(app: App): string {
   const suplentes = plantel.filter((j) => !idsTitulares.has(j.id));
   ordenar(suplentes);
 
+  // La carrera se abre pegada a la fila del que tocaste: si fuera una tarjeta
+  // al final de la pantalla, quedaria a dos mil pixeles de donde estas mirando.
+  const conCarrera = (j: Jugador, fila: string) =>
+    seleccionado === j.id ? fila + renderCarrera(estado, j) : fila;
+
   const filasTitulares = once
     .map((j, i) => {
       const ranura = ranuras[i];
       const ajuste = ajustePorPuesto(j.pos, ranura.pos);
       const nota = ajuste < 1 ? ` · fuera de puesto (-${Math.round((1 - ajuste) * 100)}%)` : '';
-      return filaSeleccionable(j, `${ranura.rol}${nota}`, true);
+      return conCarrera(j, filaSeleccionable(j, `${ranura.rol}${nota}`, true));
     })
     .join('');
 
-  const filasSuplentes = suplentes.map((j) => filaSeleccionable(j, estadoJugador(j), false)).join('');
+  const filasSuplentes = suplentes
+    .map((j) => conCarrera(j, filaSeleccionable(j, estadoJugador(j), false)))
+    .join('');
 
   return `
     <div class="tarjeta">
@@ -62,6 +70,53 @@ export function render(app: App): string {
 
     <button class="boton boton--fantasma" data-accion="auto">Alinear el mejor once automatico</button>
     <button class="boton boton--fantasma" data-accion="mercado">Mercado de pases</button>
+  `;
+}
+
+/**
+ * La carrera del jugador que esta seleccionado, temporada por temporada.
+ *
+ * Es el lugar donde el plantel deja de ser una lista de medias: aca se ve de
+ * donde viene cada uno, con que edad jugo cada ano y como le fue.
+ */
+function renderCarrera(estado: ReturnType<App['exigirEstado']>, j: Jugador): string {
+  const carrera = carreraDe(j);
+  if (j.historial.length === 0) {
+    return `
+      <div class="carrera">
+        <p class="suave" style="font-size:12px;margin:0">
+          Todavia no cerro ninguna temporada. Su historia empieza ahora.
+        </p>
+      </div>
+    `;
+  }
+
+  const filas = [...j.historial]
+    .reverse()
+    .map((t) => {
+      const club = t.clubId ? clubPorId(estado, t.clubId).abrev : 'Libre';
+      return `
+        <div class="fila fila--entre" style="padding:6px 0;border-top:1px solid var(--borde)">
+          <span style="flex:1;min-width:0">
+            <strong style="font-size:12.5px">T${t.temporada} · ${esc(club)}</strong>
+            <br /><span class="jugador__datos">
+              ${t.edad} anos · ${t.partidos} PJ · ${t.goles}g ${t.asistencias}a · media ${t.media}
+            </span>
+          </span>
+          <span class="${claseNota(t.nota)}">${t.nota.toFixed(1)}</span>
+        </div>
+      `;
+    })
+    .join('');
+
+  return `
+    <div class="carrera">
+      <p class="carrera__total">
+        ${carrera.partidos} partidos · ${carrera.goles} goles · ${carrera.asistencias} asistencias
+        · nota ${carrera.nota} · ${carrera.clubes} ${carrera.clubes === 1 ? 'club' : 'clubes'}
+      </p>
+      ${filas}
+    </div>
   `;
 }
 
@@ -118,6 +173,11 @@ function filaSeleccionable(j: Jugador, detalle: string, titular: boolean): strin
 
   const rasgos = chipsDeRasgos(j);
   const pista = pistaDeRasgoOculto(j);
+  const carrera = carreraDe(j);
+  const trayectoria =
+    carrera.temporadas > 0
+      ? `${carrera.temporadas} ${carrera.temporadas === 1 ? 'temporada' : 'temporadas'} · ${carrera.goles} ${carrera.goles === 1 ? 'gol' : 'goles'} · nota ${carrera.nota}`
+      : '';
 
   return `
     <button class="${clases.join(' ')}" style="${resaltado}" data-jugador="${esc(j.id)}">
@@ -125,6 +185,7 @@ function filaSeleccionable(j: Jugador, detalle: string, titular: boolean): strin
       <span>
         <span class="jugador__nombre">${esc(j.nombre)}</span><br />
         <span class="jugador__datos">${esc(detalle)} · ${plata(j.valor)}</span>
+        ${trayectoria ? `<br /><span class="jugador__datos">${esc(trayectoria)}</span>` : ''}
         ${rasgos || pista ? `<br />${rasgos}${pista}` : ''}
       </span>
       <span class="${claseMedia(j.media)}">${j.media}</span>

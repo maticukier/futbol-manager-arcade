@@ -1011,3 +1011,20 @@ tr.zona-ascenso td:first-child {
   min-width: 18px;
   text-align: center;
 }
+
+/* ------------------------------------------------------------------ carrera */
+
+.carrera {
+  margin: -4px 0 6px;
+  padding: 8px 12px 10px;
+  border: 1px solid var(--acento-2);
+  border-top: none;
+  border-radius: 0 0 10px 10px;
+  background: var(--panel-alto);
+}
+
+.carrera__total {
+  margin: 0;
+  font-size: 12px;
+  color: var(--texto-suave);
+}

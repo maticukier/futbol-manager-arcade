@@ -21,6 +21,7 @@ import {
 import { FOCOS } from './tacticas';
 import { crearClub } from './clubes';
 import { VERSION_PARTIDA } from './migraciones';
+import { cerrarTemporadaDeJugador, elegirAsistentes, notaSimulada } from './historial';
 import {
   calcularTabla,
   fuerzaEquipo,
@@ -245,6 +246,11 @@ export interface ResultadoArcade {
   goleadoresVisitante: string[];
   amonestados: string[];
   expulsados: string[];
+  /**
+   * Notas y asistencias de verdad, del partido que se jugo en 3D. Si no
+   * vienen, el partido fue simulado y las notas se estiman.
+   */
+  notas?: { id: string; nota: number; asistencias: number }[];
 }
 
 /** Amarillas que hay que juntar para perderse la fecha siguiente. */
@@ -299,7 +305,7 @@ export function resolverJornada(
     const esDelUsuario = propio !== null && partido.id === propio.id;
 
     if (esDelUsuario && resultadoUsuario) {
-      aplicarResultado(estado, partido, resultadoUsuario, true);
+      aplicarResultado(estado, partido, resultadoUsuario, true, rng);
       continue;
     }
 
@@ -310,7 +316,7 @@ export function resolverJornada(
       { club: visitante, fuerza: fuerzas.get(visitante.id)!, plantel: plantelDe(estado, visitante.id) },
       rng,
     );
-    aplicarResultado(estado, partido, resultado, false);
+    aplicarResultado(estado, partido, resultado, false, rng);
   }
 
   const copa = resolverCopaSiCorresponde(estado, rng, resultadoCopa);
@@ -408,6 +414,7 @@ function aplicarResultado(
   partido: Partido,
   resultado: ResultadoArcade,
   arcade: boolean,
+  rng: Rng,
 ): void {
   partido.golesLocal = resultado.golesLocal;
   partido.golesVisitante = resultado.golesVisitante;
@@ -419,13 +426,55 @@ function aplicarResultado(
     if (j) j.golesTemporada += 1;
   }
 
-  for (const clubId of [partido.localId, partido.visitanteId]) {
-    const club = clubPorId(estado, clubId);
-    for (const j of onceTitular(club, plantelDe(estado, clubId))) {
+  // Del partido jugado en 3D vienen las notas y las asistencias de verdad. Del
+  // simulado no viene nada, asi que hay que estimarlas: si no, la carrera de un
+  // jugador tendria un agujero del noventa por ciento de los partidos.
+  const reales = new Map((resultado.notas ?? []).map((n) => [n.id, n]));
+  const amonestados = new Set(resultado.amonestados);
+  const expulsados = new Set(resultado.expulsados);
+
+  const lados = [
+    { clubId: partido.localId, goleadores: resultado.goleadoresLocal, diferencia: resultado.golesLocal - resultado.golesVisitante },
+    { clubId: partido.visitanteId, goleadores: resultado.goleadoresVisitante, diferencia: resultado.golesVisitante - resultado.golesLocal },
+  ];
+
+  for (const lado of lados) {
+    const club = clubPorId(estado, lado.clubId);
+    const plantel = plantelDe(estado, lado.clubId);
+
+    const asistencias = new Map<string, number>();
+    if (reales.size === 0) {
+      for (const id of elegirAsistentes(plantel, lado.goleadores, rng)) {
+        asistencias.set(id, (asistencias.get(id) ?? 0) + 1);
+      }
+    }
+
+    for (const j of onceTitular(club, plantel)) {
       j.partidosTemporada += 1;
       // A los propios se los va conociendo: de aca sale que despues de varios
       // partidos se destape el rasgo que no venia en la ficha.
-      if (clubId === estado.clubUsuarioId) j.partidosObservado += 1;
+      if (lado.clubId === estado.clubUsuarioId) j.partidosObservado += 1;
+
+      const real = reales.get(j.id);
+      if (real) {
+        j.notaSumada += real.nota;
+        j.asistenciasTemporada += real.asistencias;
+        continue;
+      }
+
+      const suyas = asistencias.get(j.id) ?? 0;
+      j.asistenciasTemporada += suyas;
+      j.notaSumada += notaSimulada(
+        j,
+        {
+          goles: lado.goleadores.filter((id) => id === j.id).length,
+          asistencias: suyas,
+          amarilla: amonestados.has(j.id),
+          roja: expulsados.has(j.id),
+          diferencia: lado.diferencia,
+        },
+        rng,
+      );
     }
   }
 
@@ -768,6 +817,10 @@ export function cerrarTemporada(estado: EstadoJuego): ResumenTemporada {
   const despedido = estado.directorio.confianza <= 0 || (!cumplioObjetivo && posicion === equipos);
   estado.despedido = despedido;
 
+  // La temporada de cada jugador se guarda siempre, aunque al usuario lo echen:
+  // el mundo sigue y esa historia no se puede reconstruir despues.
+  guardarLaTemporadaDeCadaUno(estado);
+
   const juveniles = despedido ? [] : promoverJuveniles(estado, rng);
 
   if (!despedido) {
@@ -776,6 +829,17 @@ export function cerrarTemporada(estado: EstadoJuego): ResumenTemporada {
   }
 
   return { posicion, puntos, cumplioObjetivo, despedido, juveniles, premio };
+}
+
+/**
+ * Cierra el ano de todos y lo escribe en su carrera, antes de que los
+ * contadores vuelvan a cero. Es el unico momento en que ese dato existe.
+ */
+function guardarLaTemporadaDeCadaUno(estado: EstadoJuego): void {
+  const divisionDe = new Map(estado.clubs.map((c) => [c.id, c.division]));
+  for (const j of estado.jugadores) {
+    cerrarTemporadaDeJugador(j, estado.temporada, (j.clubId && divisionDe.get(j.clubId)) || 1);
+  }
 }
 
 function promoverJuveniles(estado: EstadoJuego, rng: Rng): Jugador[] {
@@ -824,8 +888,10 @@ function envejecerPlantel(estado: EstadoJuego, rng: Rng): void {
     j.valor = valorDeMercado(j.media, j.edad, j.potencial);
     j.salario = salarioSemanal(j.valor, j.media);
     j.golesTemporada = 0;
+    j.asistenciasTemporada = 0;
     j.partidosTemporada = 0;
     j.amarillasTemporada = 0;
+    j.notaSumada = 0;
     j.sancionPartidos = 0;
     j.forma = rng.int(85, 100);
 

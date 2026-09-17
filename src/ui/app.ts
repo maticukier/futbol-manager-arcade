@@ -200,9 +200,18 @@ export class App {
       return;
     }
 
+    // Las notas del partido que se jugo son las de verdad: van al historial en
+    // vez de las estimadas que usa un partido simulado.
+    const notas = [...resultado.notas.usuario, ...resultado.notas.rival].map((n) => ({
+      id: n.id,
+      nota: n.nota,
+      asistencias: n.stats.asistencias,
+    }));
+
     const tarjetas = {
       amonestados: resultado.amonestados,
       expulsados: resultado.expulsados,
+      notas,
     };
 
     const arcade: ResultadoArcade = usuarioEsLocal

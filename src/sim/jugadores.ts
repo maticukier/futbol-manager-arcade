@@ -114,13 +114,16 @@ export function generarJugador(rng: Rng, opciones: OpcionesJugador): Jugador {
     clubId,
     contratoSemanas: rng.int(40, 160),
     golesTemporada: 0,
+    asistenciasTemporada: 0,
     partidosTemporada: 0,
     amarillasTemporada: 0,
+    notaSumada: 0,
     sancionPartidos: 0,
     progreso: 0,
     rasgos,
     rasgoOculto,
     partidosObservado: 0,
+    historial: [],
   };
 }
 

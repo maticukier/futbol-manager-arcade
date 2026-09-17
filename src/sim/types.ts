@@ -5,6 +5,7 @@
  */
 
 import type { RasgoId } from './rasgos';
+import type { TemporadaJugador } from './historial';
 
 export type PosicionCodigo = 'ARQ' | 'DEF' | 'MED' | 'DEL';
 
@@ -38,8 +39,15 @@ export interface Jugador {
   clubId: string | null;
   contratoSemanas: number;
   golesTemporada: number;
+  asistenciasTemporada: number;
   partidosTemporada: number;
   amarillasTemporada: number;
+  /**
+   * Suma de las notas de la temporada. Dividida por los partidos da el
+   * promedio; se guarda la suma y no el promedio para no arrastrar error al
+   * ir sumando partido a partido.
+   */
+  notaSumada: number;
   /** Fechas que le quedan de suspension. */
   sancionPartidos: number;
   /**
@@ -56,6 +64,8 @@ export interface Jugador {
   rasgoOculto: RasgoId | null;
   /** Partidos que el usuario le vio jugar, para destapar el rasgo oculto. */
   partidosObservado: number;
+  /** Su carrera, temporada por temporada. Se escribe al cerrar cada ano. */
+  historial: TemporadaJugador[];
 }
 
 export type Formacion = '4-4-2' | '4-3-3' | '3-5-2' | '5-3-2' | '4-2-3-1';

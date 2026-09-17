@@ -27,7 +27,12 @@ De ahi salen tres consecuencias que valen mas que cualquier feature suelta:
 
 - **La historia se guarda desde el dia uno.** Los datos que no se registran no
   se pueden reconstruir despues. Antes de construir la feature que muestra la
-  historia, hay que estar guardando la historia.
+  historia, hay que estar guardando la historia. **Hecho**
+  (`src/sim/historial.ts`): cada jugador guarda una fila por temporada con
+  club, division, edad, partidos, goles, asistencias, nota promedio y la media
+  con la que cerro. Los partidos simulados tambien puntuan, en la misma escala
+  que el que se juega en 3D, porque si no la carrera tendria un agujero del
+  noventa por ciento.
 - **La simulacion va separada del render.** Ya es asi y no se toca: permite
   simular sin pantalla, testear y medir el balance.
 - **Todo lo que agregue identidad al jugador pasa por `sim/`,** que es la capa
@@ -139,11 +144,9 @@ vieja. **No alcanza para evitar IndexedDB**: America entera con diez paises da
 4,3 MB contra un limite de alrededor de 5 MB, asi que la mudanza del guardado
 sigue siendo obligatoria antes de sumar paises.
 
-**Depende de la historia.** Ver como crecen es una consulta sobre atributos
-registrados temporada a temporada. Hoy el campo `progreso` se mueve y no queda
-registro: un chico que paso de 48 a 61 en dos anos se ve igual que uno que
-siempre estuvo en 61. La cantera no se puede construir antes que el historial
-por jugador.
+**Depende de la historia,** que ya esta: cada temporada guarda la media con la
+que cerro, asi que se puede ver a un chico pasar de 48 a 61 en dos anos en vez
+de leer solo el numero de hoy. La cantera ya no esta bloqueada por eso.
 
 ### Instalaciones
 El club tiene instalaciones que se pueden mejorar y que impactan en dos
@@ -160,8 +163,9 @@ rendimiento.
 **Consecuencia:** hace falta una nota de rendimiento por partido. **Ya existe**
 (`src/sim/rendimiento.ts`): cada partido reparte un puntaje de uno a diez a
 partir de goles, asistencias, remates, pases completados, quites, faltas,
-tarjetas y, para el arquero, atajadas y goles recibidos. Falta acumularla por
-temporada, que es lo que van a leer el potencial y la reputacion.
+tarjetas y, para el arquero, atajadas y goles recibidos. Y **ya se acumula por
+temporada** en el historial del jugador, asi que el dato que necesitan el
+potencial y la reputacion esta disponible: queda escribir los dos sistemas.
 
 ### Dos presupuestos separados
 La caja del club se divide en dos:
