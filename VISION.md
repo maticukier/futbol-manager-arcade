@@ -35,11 +35,13 @@ De ahi salen tres consecuencias que valen mas que cualquier feature suelta:
 - **Sin servidor.** Es una app web estatica: no hay backend, no hay IA en
   tiempo de ejecucion. Lo que parezca redaccion (noticias, declaraciones) sale
   de plantillas con mucha variacion, no de un modelo.
-- **El guardado no entra en localStorage.** Medido: hoy la partida pesa 274 kB
-  con 592 jugadores, unos 387 bytes por jugador. Con juveniles de 12 a 18 en
-  cada club se va a 0,4 MB en un solo pais, y con diez paises a 4 MB, contra un
-  limite de alrededor de 5 MB. Antes de sumar juveniles o paises hay que mudar
-  el guardado a IndexedDB, que no tiene ese techo.
+- **El guardado no entra en localStorage.** Medido: hoy la partida pesa 313 kB
+  con 592 jugadores, unos 542 bytes por jugador. Con la cantera sub 18 en cada
+  club se va a 0,43 MB en un solo pais, y con diez paises a 4,3 MB, contra un
+  limite de alrededor de 5 MB. Un pais solo entra; America entera no. Antes de
+  sumar paises hay que mudar el guardado a IndexedDB, que no tiene ese techo.
+  El historial por jugador, en cambio, entra sobrado: son 63 bytes por jugador
+  y temporada, o sea 0,53 MB despues de quince temporadas.
 
 ## Decisiones tomadas
 
@@ -117,14 +119,31 @@ La estimacion, contando inferiores de 12 a 18, esta en el orden de decenas de
 miles de jugadores y de varios MB de guardado. Es perfectamente manejable en
 IndexedDB, pero confirma que hay que salir de localStorage antes de empezar.
 
-### Juveniles de 12 anos a reserva
-Cada club tiene divisiones inferiores desde los 12 anos hasta reserva. Se los
-ve crecer ano a ano, y ahi aparecen las promesas del club, que se sienten como
-proyectos propios mucho antes de debutar. **Recien a partir de los 15 pueden
-subir al primer equipo.**
+### Cantera sub 18
+Cada club tiene una cantera de **15 a 18 anos**, unos doce chicos. Se los ve
+crecer ano a ano, y ahi aparecen las promesas del club, que se sienten como
+proyectos propios antes de debutar. **Recien a partir de los 16 pueden subir al
+primer equipo.**
 
-**Consecuencia:** multiplica la cantidad de jugadores del mundo y obliga a que
-la ficha de un chico de 12 no se lea como la de un profesional.
+*Antes esto decia de 12 anos a reserva, subibles desde los 15. Se cambio porque
+el propio documento (decision 5 de diseno) dice que hasta los 15 un chico no
+muestra numeros: de 12 a 15 era un nombre y una opinion, que no se puede
+evaluar ni usar ni vender. Eran tres anos de filas inertes y veintiun juveniles
+por club, una lista que nadie lee, justo lo contrario de encarinarse con ellos.
+Con doce se los conoce por nombre, y a los 16 es cuando debuta un pibe de
+verdad. El ano de 15 se deja para poder verlo antes de poder subirlo.*
+
+**Consecuencia:** sigue multiplicando la cantidad de jugadores del mundo, pero
+la mitad que antes. Medido: +126 kB por pais contra +220 kB de la version
+vieja. **No alcanza para evitar IndexedDB**: America entera con diez paises da
+4,3 MB contra un limite de alrededor de 5 MB, asi que la mudanza del guardado
+sigue siendo obligatoria antes de sumar paises.
+
+**Depende de la historia.** Ver como crecen es una consulta sobre atributos
+registrados temporada a temporada. Hoy el campo `progreso` se mueve y no queda
+registro: un chico que paso de 48 a 61 en dos anos se ve igual que uno que
+siempre estuvo en 61. La cantera no se puede construir antes que el historial
+por jugador.
 
 ### Instalaciones
 El club tiene instalaciones que se pueden mejorar y que impactan en dos
@@ -175,8 +194,9 @@ puede dar vuelta, pero mientras no se de vuelta, se programa asi.
    partido, no una etiqueta. El oculto se destapa a los doce partidos.
 4. **Numeros o sensaciones.** Numeros en tu plantel; palabras en los de afuera
    hasta que los observes. Asi el ojeador sirve y el mercado tiene riesgo.
-5. **Un juvenil de 12 no muestra numeros.** Hasta los 15 solo se ve lo que dice
-   el coordinador de inferiores, y a veces se equivoca.
+5. **Un juvenil no muestra numeros.** Hasta los 16 solo se ve lo que dice el
+   coordinador de inferiores, y a veces se equivoca. Con la cantera empezando a
+   los 15, eso es un ano de leerlo a ciegas antes de poder subirlo.
 6. **El usuario es un personaje** con nombre e historia. Que te echen no
    termina la carrera: empieza un capitulo nuevo con ofertas segun lo que
    hiciste.
